@@ -58,18 +58,22 @@ async def _send_ephemeral(update: Update, context: ContextTypes.DEFAULT_TYPE, te
 def _main_menu_kb() -> InlineKeyboardMarkup:
 	return InlineKeyboardMarkup(
 		[
-			[InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")],
-			[InlineKeyboardButton(text="🏋️ Тренировки", callback_data="menu_workouts")],
-			[InlineKeyboardButton(text="📅 Меню неделю", callback_data="menu_week")],
-			[InlineKeyboardButton(text="🤖 AI КБЖУ по фото", callback_data="menu_ai_kbzhu_photo")],
-			[InlineKeyboardButton(text="🆘 Поддержка", callback_data="menu_support")],
-			[InlineKeyboardButton(text="🎁 Бонусная программа", callback_data="menu_loyalty")],
+			[
+				InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile"),
+				InlineKeyboardButton(text="🏋️ Тренировки", callback_data="menu_workouts"),
+				InlineKeyboardButton(text="📅 Меню неделю", callback_data="menu_week"),
+			],
+			[
+				InlineKeyboardButton(text="🤖 AI КБЖУ по фото", callback_data="menu_ai_kbzhu_photo"),
+				InlineKeyboardButton(text="🆘 Поддержка", callback_data="menu_support"),
+				InlineKeyboardButton(text="🎁 Бонусная программа", callback_data="menu_loyalty"),
+			],
 		]
 	)
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(update, context, "Меню открыто. Выбирай раздел 👇", reply_markup=_main_menu_kb())
+	await _send_ephemeral(update, context, "Панель управления открыта. Выбирай раздел 👇", reply_markup=_main_menu_kb())
 	# Try to delete the triggering user message (e.g., /menu command or text)
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
@@ -94,7 +98,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(update, context, "Подсказка: используй меню ниже, чтобы выбрать раздел.", reply_markup=_main_menu_kb())
+	await _send_ephemeral(update, context, "Подсказка: используй панель ниже, чтобы выбрать раздел.", reply_markup=_main_menu_kb())
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -121,7 +125,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		categories = build_categories(None)
 		categories_json = json.dumps(categories, ensure_ascii=False)
 
-	reply_text = "Принял! Открыл меню 👇"
+	reply_text = "Принял! Открыл панель 👇"
 	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, user_text)
