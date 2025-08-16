@@ -6,7 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Dict, List
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
@@ -48,39 +48,7 @@ async def _safe_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
 		pass
 
 
-async def _send_ephemeral(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
-	chat_id = update.effective_chat.id
-	await _cleanup_chat_messages(context, chat_id)
-	sent = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
-	_ephemeral_messages.setdefault(chat_id, []).append(sent.message_id)
-
-
-def _main_menu_kb() -> InlineKeyboardMarkup:
-	return InlineKeyboardMarkup(
-		[
-			[
-				InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile"),
-				InlineKeyboardButton(text="🏋️ Тренировки", callback_data="menu_workouts"),
-				InlineKeyboardButton(text="📅 Меню неделю", callback_data="menu_week"),
-			],
-			[
-				InlineKeyboardButton(text="🤖 AI КБЖУ по фото", callback_data="menu_ai_kbzhu_photo"),
-				InlineKeyboardButton(text="🆘 Поддержка", callback_data="menu_support"),
-				InlineKeyboardButton(text="🎁 Бонусная программа", callback_data="menu_loyalty"),
-			],
-		]
-	)
-
-
-async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(update, context, "Панель управления открыта. Выбирай раздел 👇", reply_markup=_main_menu_kb())
-	# Try to delete the triggering user message (e.g., /menu command or text)
-	if update.message:
-		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
-
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	# One-time start screen and then show inline menu
 	if settings.feature_db:
 		with session_scope() as s:
 			user = repo.get_or_create_user(
@@ -93,12 +61,37 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 			seen = repo.get_user_pref(s, user, "start_seen", False)
 			if not seen:
 				repo.set_user_pref(s, user, "start_seen", True)
-	# Always show menu (ephemeral) and delete the user's /start message
-	await show_main_menu(update, context)
+
+	await _cleanup_chat_messages(context, update.effective_chat.id)
+	welcome = (
+		"<b>Привет!</b> Я твой персональный тренер и нутрициолог.\n\n"
+		"— Помогу с тренировками под цель и уровень 💪\n"
+		"— Подберу питание и КБЖУ 🥗\n"
+		"— Отвечу на вопросы коротко и по делу ✨\n\n"
+		"Отправь голосовое или текст — и начнём!"
+	)
+	if settings.bot_logo_url:
+		try:
+			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=settings.bot_logo_url, caption=welcome, parse_mode=ParseMode.HTML)
+			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+		except Exception:
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML)
+			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+	else:
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML)
+		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+
+	if update.message:
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(update, context, "Подсказка: используй панель ниже, чтобы выбрать раздел.", reply_markup=_main_menu_kb())
+	text = (
+		"Коротко: отправь голосовое или текст.\n"
+		"Я расшифрую речь, пойму задачу и предложу шаги: тренировки, питание, ответы."
+	)
+	msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
+	_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -125,7 +118,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		categories = build_categories(None)
 		categories_json = json.dumps(categories, ensure_ascii=False)
 
-	reply_text = "Принял! Открыл панель 👇"
+	reply_text = "Принял! Работаю над ответом ✨"
 	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, user_text)
@@ -145,8 +138,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 			reply_text = "Сервис рекомендаций временно недоступен. Попробуй ещё раз позже 🙏"
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
 
-	await show_main_menu(update, context)
-	# Delete the user's text message to keep chat clean
+	# Show reply as ephemeral message
+	await _cleanup_chat_messages(context, update.effective_chat.id)
+	msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=reply_text, parse_mode=ParseMode.HTML)
+	_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 	if settings.feature_db:
@@ -166,7 +161,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 		return
 
 	if not settings.feature_asr:
-		await _send_ephemeral(update, context, "Голос пока не подключён. Отправь текст ✍️")
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="Голос пока не подключён. Отправь текст ✍️")
+		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 		if update.message:
 			await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 		return
@@ -179,20 +175,23 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			await file.download_to_drive(custom_path=str(dl_path))
 		except Exception as e:
 			logging.getLogger("download").error("Failed to download voice: %s", e)
-			await _send_ephemeral(update, context, "Не удалось скачать голосовое. Попробуй ещё раз 🙏")
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="Не удалось скачать голосовое. Попробуй ещё раз 🙏")
+			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 			if update.message:
 				await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 			return
 		try:
 			text, _conf = await transcribe_audio(dl_path)
 		except ASRUnavailable:
-			await _send_ephemeral(update, context, "ASR временно недоступен. Добавь текстом, пожалуйста 🙏")
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="ASR временно недоступен. Добавь текстом, пожалуйста 🙏")
+			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 			if update.message:
 				await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 			return
 		except Exception as e:
 			logging.getLogger("asr").error("Whisper failed: %s", e)
-			await _send_ephemeral(update, context, "Не удалось распознать голос. Попробуй ещё раз 🙏")
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="Не удалось распознать голос. Попробуй ещё раз 🙏")
+			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 			if update.message:
 				await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 			return
@@ -232,8 +231,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			reply_text = "Сервис рекомендаций временно недоступен. Попробуй ещё раз позже 🙏"
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
 
-	await _send_ephemeral(update, context, reply_text)
-	# Delete the user's voice message
+	await _cleanup_chat_messages(context, update.effective_chat.id)
+	msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=reply_text, parse_mode=ParseMode.HTML)
+	_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -250,26 +250,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	query = update.callback_query
-	if not query:
-		return
-	await query.answer()
-	data = query.data or ""
-	_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
-	if data == "menu_profile":
-		await _send_ephemeral(update, context, "Личный кабинет — скоро здесь можно будет настраивать профиль 👤")
-	elif data == "menu_workouts":
-		await _send_ephemeral(update, context, "Тренировки — персональные планы в разработке 💪")
-	elif data == "menu_week":
-		await _send_ephemeral(update, context, "Меню на неделю — скоро подберём рацион под цель 🥗")
-	elif data == "menu_ai_kbzhu_photo":
-		await _send_ephemeral(update, context, "AI КБЖУ по фото — загрузка снимка и анализ скоро будут доступны 📸")
-	elif data == "menu_support":
-		await _send_ephemeral(update, context, "Поддержка — напиши вопрос, мы поможем 🆘")
-	elif data == "menu_loyalty":
-		await _send_ephemeral(update, context, "Бонусная программа — копи баллы и получай плюсы 🎁")
-	else:
-		await show_main_menu(update, context)
+	# No inline menu now; ignore or show help
+	await help_command(update, context)
 
 
 async def run() -> None:
@@ -285,7 +267,6 @@ async def run() -> None:
 
 	app = ApplicationBuilder().token(settings.telegram_bot_token).build()
 	app.add_handler(CommandHandler("start", start_command))
-	app.add_handler(CommandHandler("menu", show_main_menu))
 	app.add_handler(CommandHandler("help", help_command))
 	app.add_handler(CallbackQueryHandler(handle_menu_callback))
 	app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

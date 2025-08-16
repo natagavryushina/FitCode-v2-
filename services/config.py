@@ -23,6 +23,7 @@ class AppSettings:
 	database_url: str = os.getenv("DATABASE_URL", "sqlite:////workspace/db/app.db")
 	log_level: str = os.getenv("LOG_LEVEL", "INFO")
 	whisper_model: str = os.getenv("WHISPER_MODEL", "whisper-1")
+	bot_logo_url: str | None = os.getenv("BOT_LOGO_URL")
 
 	# Feature flags for staged rollout
 	feature_db: bool = env_bool("FEATURE_DB", "0")
