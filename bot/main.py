@@ -53,11 +53,14 @@ def _main_menu_kb() -> InlineKeyboardMarkup:
 	return InlineKeyboardMarkup(
 		[
 			[
-				InlineKeyboardButton(text="🏋️ Тренировка сегодня", callback_data="menu_workout"),
-				InlineKeyboardButton(text="🥗 Питание сегодня", callback_data="menu_nutrition"),
+				InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile"),
+				InlineKeyboardButton(text="🏋️ Тренировки", callback_data="menu_workouts"),
+				InlineKeyboardButton(text="📅 Меню неделю", callback_data="menu_week"),
 			],
 			[
-				InlineKeyboardButton(text="ℹ️ Помощь", callback_data="menu_help"),
+				InlineKeyboardButton(text="🤖 AI КБЖУ по фото", callback_data="menu_ai_kbzhu_photo"),
+				InlineKeyboardButton(text="🆘 Поддержка", callback_data="menu_support"),
+				InlineKeyboardButton(text="🎁 Бонусная программа", callback_data="menu_loyalty"),
 			]
 		]
 	)
@@ -80,7 +83,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 	await _send_ephemeral(
 		update,
 		context,
-		"Коротко о возможностях:\n— Голос в текст (Whisper) 🎤\n— Персональные тренировки без повторов 🏋️\n— Планы питания под цели 🥗\n\nНажми кнопку ниже, чтобы продолжить.",
+		"Коротко:\n— Личный кабинет\n— Тренировки\n— Меню неделю\n— AI КБЖУ по фото\n— Поддержка\n— Бонусная программа\n\nВыбирай раздел ниже.",
 		reply_markup=_main_menu_kb(),
 	)
 
@@ -107,7 +110,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		categories = build_categories(None)
 		categories_json = json.dumps(categories, ensure_ascii=False)
 
-	reply_text = "Принял! Работаю над персональным ответом 💡\n\nНажми кнопку, чтобы выбрать действие."
+	reply_text = "Принял! Работаю над персональным ответом 💡\n\nВыбирай раздел ниже."
 	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, user_text)
@@ -226,12 +229,18 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 	data = query.data or ""
 	# Also record the original message for cleanup
 	_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
-	if data == "menu_workout":
-		await _send_ephemeral(update, context, "Тренировка на сегодня скоро будет готова 💪\n\nПока доступен демо-режим.", reply_markup=_main_menu_kb())
-	elif data == "menu_nutrition":
-		await _send_ephemeral(update, context, "Рацион на сегодня — в разработке 🥗\n\nВыбери другой раздел.", reply_markup=_main_menu_kb())
-	elif data == "menu_help":
-		await help_command(update, context)
+	if data == "menu_profile":
+		await _send_ephemeral(update, context, "Личный кабинет — скоро здесь можно будет настраивать профиль 👤", reply_markup=_main_menu_kb())
+	elif data == "menu_workouts":
+		await _send_ephemeral(update, context, "Тренировки — персональные планы в разработке 💪", reply_markup=_main_menu_kb())
+	elif data == "menu_week":
+		await _send_ephemeral(update, context, "Меню на неделю — скоро подберём рацион под цель 🥗", reply_markup=_main_menu_kb())
+	elif data == "menu_ai_kbzhu_photo":
+		await _send_ephemeral(update, context, "AI КБЖУ по фото — загрузка снимка и анализ скоро будут доступны 📸", reply_markup=_main_menu_kb())
+	elif data == "menu_support":
+		await _send_ephemeral(update, context, "Поддержка — напиши вопрос, мы поможем 🆘", reply_markup=_main_menu_kb())
+	elif data == "menu_loyalty":
+		await _send_ephemeral(update, context, "Бонусная программа — копи баллы и получай плюсы 🎁", reply_markup=_main_menu_kb())
 	else:
 		await show_main_menu(update, context)
 
