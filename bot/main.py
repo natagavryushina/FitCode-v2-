@@ -20,7 +20,8 @@ from services.asr_whisper import transcribe_audio, ASRUnavailable
 
 
 async def on_startup() -> None:
-	Base.metadata.create_all(bind=engine)
+	if settings.feature_db:
+		Base.metadata.create_all(bind=engine)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -47,47 +48,66 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 	if not update.message or not update.message.text:
 		return
 	user_text = update.message.text
-	with session_scope() as s:
-		user = repo.get_or_create_user(
-			s,
-			tg_user_id=str(update.effective_user.id),
-			username=update.effective_user.username,
-			first_name=update.effective_user.first_name,
-			last_name=update.effective_user.last_name,
-		)
-		repo.add_message(s, user_id=user.id, direction="in", type_="text", content=user_text)
-		categories = build_categories(user)
+
+	if settings.feature_db:
+		with session_scope() as s:
+			user = repo.get_or_create_user(
+				s,
+				tg_user_id=str(update.effective_user.id),
+				username=update.effective_user.username,
+				first_name=update.effective_user.first_name,
+				last_name=update.effective_user.last_name,
+			)
+			repo.add_message(s, user_id=user.id, direction="in", type_="text", content=user_text)
+			categories = build_categories(user)
+			categories_json = json.dumps(categories, ensure_ascii=False)
+	else:
+		user = None
+		categories = build_categories(None)
 		categories_json = json.dumps(categories, ensure_ascii=False)
+
+	reply_text = "Принял! Работаю над персональным ответом 💡"
+	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, user_text)
-			repo.add_llm_exchange(
-				s,
-				user_id=user.id,
-				provider="openrouter",
-				model=settings.openrouter_model,
-				prompt=user_text,
-				categories_json=categories_json,
-				response_text=reply_text,
-				usage=usage,
-			)
+			if settings.feature_db and user:
+				with session_scope() as s:
+					repo.add_llm_exchange(
+						s,
+						user_id=user.id,
+						provider="openrouter",
+						model=settings.openrouter_model,
+						prompt=user_text,
+						categories_json=categories_json,
+						response_text=reply_text,
+						usage=usage,
+					)
 		except OpenRouterError as e:
 			reply_text = "Сервис рекомендаций временно недоступен. Попробуй ещё раз позже 🙏"
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
-	await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
-	with session_scope() as s2:
-		user2 = repo.get_or_create_user(
-			s2,
-			tg_user_id=str(update.effective_user.id),
-			username=update.effective_user.username,
-			first_name=update.effective_user.first_name,
-			last_name=update.effective_user.last_name,
-		)
-		repo.add_message(s2, user_id=user2.id, direction="out", type_="text", content=reply_text)
+
+	await update.message.reply_text(rely_text if (rely_text := reply_text) else "Ок ✌️", parse_mode=ParseMode.HTML)
+
+	if settings.feature_db:
+		with session_scope() as s2:
+			user2 = repo.get_or_create_user(
+				s2,
+				tg_user_id=str(update.effective_user.id),
+				username=update.effective_user.username,
+				first_name=update.effective_user.first_name,
+				last_name=update.effective_user.last_name,
+			)
+			repo.add_message(s2, user_id=user2.id, direction="out", type_="text", content=reply_text)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message or not update.message.voice:
 		return
+
+	if not settings.feature_asr:
+		await update.message.reply_text("Голос пока не подключён. Отправь текст ✍️")
+		return
+
 	voice = update.message.voice
 	with tempfile.TemporaryDirectory() as td:
 		dl_path = Path(td) / f"{voice.file_unique_id}.oga"
@@ -108,44 +128,53 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			await update.message.reply_text("Не удалось распознать голос. Попробуй ещё раз 🙏")
 			return
 
-	with session_scope() as s:
-		user = repo.get_or_create_user(
-			s,
-			tg_user_id=str(update.effective_user.id),
-			username=update.effective_user.username,
-			first_name=update.effective_user.first_name,
-			last_name=update.effective_user.last_name,
-		)
-		repo.add_message(s, user_id=user.id, direction="in", type_="voice", content=text)
-		repo.add_transcription(s, user_id=user.id, telegram_file_id=voice.file_id, text=text, audio_duration_sec=voice.duration, format_=voice.mime_type)
-		categories = build_categories(user)
-		categories_json = json.dumps(categories, ensure_ascii=False)
+	user = None
+	if settings.feature_db:
+		with session_scope() as s:
+			user = repo.get_or_create_user(
+				s,
+				tg_user_id=str(update.effective_user.id),
+				username=update.effective_user.username,
+				first_name=update.effective_user.first_name,
+				last_name=update.effective_user.last_name,
+			)
+			repo.add_message(s, user_id=user.id, direction="in", type_="voice", content=text)
+			repo.add_transcription(s, user_id=user.id, telegram_file_id=voice.file_id, text=text, audio_duration_sec=voice.duration, format_=voice.mime_type)
+
+	categories = build_categories(user if settings.feature_db else None)
+	categories_json = json.dumps(categories, ensure_ascii=False)
+	reply_text = text
+	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, text)
-			repo.add_llm_exchange(
-				s,
-				user_id=user.id,
-				provider="openrouter",
-				model=settings.openrouter_model,
-				prompt=text,
-				categories_json=categories_json,
-				response_text=reply_text,
-				usage=usage,
-			)
+			if settings.feature_db and user:
+				with session_scope() as s:
+					repo.add_llm_exchange(
+						s,
+						user_id=user.id,
+						provider="openrouter",
+						model=settings.openrouter_model,
+						prompt=text,
+						categories_json=categories_json,
+						response_text=reply_text,
+						usage=usage,
+					)
 		except OpenRouterError as e:
 			reply_text = "Сервис рекомендаций временно недоступен. Попробуй ещё раз позже 🙏"
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
 
-	await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
-	with session_scope() as s2:
-		user2 = repo.get_or_create_user(
-			s2,
-			tg_user_id=str(update.effective_user.id),
-			username=update.effective_user.username,
-			first_name=update.effective_user.first_name,
-			last_name=update.effective_user.last_name,
-		)
-		repo.add_message(s2, user_id=user2.id, direction="out", type_="text", content=reply_text)
+	await update.message.reply_text(rely_text if (rely_text := reply_text) else "Ок ✌️", parse_mode=ParseMode.HTML)
+
+	if settings.feature_db:
+		with session_scope() as s2:
+			user2 = repo.get_or_create_user(
+				s2,
+				tg_user_id=str(update.effective_user.id),
+				username=update.effective_user.username,
+				first_name=update.effective_user.first_name,
+				last_name=update.effective_user.last_name,
+			)
+			repo.add_message(s2, user_id=user2.id, direction="out", type_="text", content=reply_text)
 
 
 async def run() -> None:

@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def env_bool(name: str, default: str = "0") -> bool:
+	val = os.getenv(name, default).strip().lower()
+	return val in ("1", "true", "yes", "y", "on")
+
+
 @dataclass
 class AppSettings:
 	telegram_bot_token: str | None = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -18,6 +23,11 @@ class AppSettings:
 	database_url: str = os.getenv("DATABASE_URL", "sqlite:////workspace/db/app.db")
 	log_level: str = os.getenv("LOG_LEVEL", "INFO")
 	whisper_model: str = os.getenv("WHISPER_MODEL", "whisper-1")
+
+	# Feature flags for staged rollout
+	feature_db: bool = env_bool("FEATURE_DB", "0")
+	feature_asr: bool = env_bool("FEATURE_ASR", "0")
+	feature_llm: bool = env_bool("FEATURE_LLM", "0")
 
 
 settings = AppSettings()
