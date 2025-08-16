@@ -6,7 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Dict, List
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
@@ -47,29 +47,32 @@ async def _send_ephemeral(update: Update, context: ContextTypes.DEFAULT_TYPE, te
 	_ephemeral_messages.setdefault(chat_id, []).append(sent.message_id)
 
 
+def _main_reply_kb() -> ReplyKeyboardMarkup:
+	return ReplyKeyboardMarkup(
+		[[KeyboardButton(text="📋 Меню")]],
+		resize_keyboard=True,
+		one_time_keyboard=False,
+	)
+
+
 def _main_menu_kb() -> InlineKeyboardMarkup:
 	return InlineKeyboardMarkup(
 		[
-			[
-				InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile"),
-				InlineKeyboardButton(text="🏋️ Тренировки", callback_data="menu_workouts"),
-				InlineKeyboardButton(text="📅 Меню неделю", callback_data="menu_week"),
-			],
-			[
-				InlineKeyboardButton(text="🤖 AI КБЖУ по фото", callback_data="menu_ai_kbzhu_photo"),
-				InlineKeyboardButton(text="🆘 Поддержка", callback_data="menu_support"),
-				InlineKeyboardButton(text="🎁 Бонусная программа", callback_data="menu_loyalty"),
-			]
+			[InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile")],
+			[InlineKeyboardButton(text="🏋️ Тренировки", callback_data="menu_workouts")],
+			[InlineKeyboardButton(text="📅 Меню неделю", callback_data="menu_week")],
+			[InlineKeyboardButton(text="🤖 AI КБЖУ по фото", callback_data="menu_ai_kbzhu_photo")],
+			[InlineKeyboardButton(text="🆘 Поддержка", callback_data="menu_support")],
+			[InlineKeyboardButton(text="🎁 Бонусная программа", callback_data="menu_loyalty")],
 		]
 	)
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(update, context, "Выбирай раздел 👇", reply_markup=_main_menu_kb())
+	await _send_ephemeral(update, context, "Меню открыто. Выбирай раздел 👇", reply_markup=_main_menu_kb())
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	# One-time start screen when DB is enabled
 	if settings.feature_db:
 		with session_scope() as s:
 			user = repo.get_or_create_user(
@@ -82,20 +85,37 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 			seen = repo.get_user_pref(s, user, "start_seen", False)
 			if not seen:
 				repo.set_user_pref(s, user, "start_seen", True)
-				await _send_ephemeral(update, context, "Старт! Я с тобой на одной волне 💪\n\nВыбирай раздел ниже.", reply_markup=_main_menu_kb())
+				await _cleanup_chat_messages(context, update.effective_chat.id)
+				await context.bot.send_message(
+					chat_id=update.effective_chat.id,
+					text="Добро пожаловать! Нажми <b>📋 Меню</b>, чтобы открыть разделы.",
+					parse_mode=ParseMode.HTML,
+					reply_markup=_main_reply_kb(),
+				)
 				return
 	# fallback or repeated /start
-	await show_main_menu(update, context)
+	await _cleanup_chat_messages(context, update.effective_chat.id)
+	await context.bot.send_message(
+		chat_id=update.effective_chat.id,
+		text="Нажми <b>📋 Меню</b>, чтобы открыть разделы.",
+		parse_mode=ParseMode.HTML,
+		reply_markup=_main_reply_kb(),
+	)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(update, context, "Подсказка: выбери нужный раздел в меню 👇", reply_markup=_main_menu_kb())
+	await _send_ephemeral(update, context, "Подсказка: нажми <b>📋 Меню</b> внизу, чтобы открыть разделы.")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message or not update.message.text:
 		return
-	user_text = update.message.text
+	user_text = update.message.text.strip()
+
+	# Open menu when user taps the persistent button
+	if user_text.lower() in {"📋 меню", "меню", "/menu", "menu"}:
+		await show_main_menu(update, context)
+		return
 
 	if settings.feature_db:
 		with session_scope() as s:
@@ -114,7 +134,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		categories = build_categories(None)
 		categories_json = json.dumps(categories, ensure_ascii=False)
 
-	reply_text = "Принял! Выбирай раздел ниже."
+	reply_text = "Принял! Нажми <b>📋 Меню</b> для навигации."
 	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, user_text)
@@ -134,7 +154,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 			reply_text = "Сервис рекомендаций временно недоступен. Попробуй ещё раз позже 🙏"
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
 
-	await _send_ephemeral(update, context, reply_text, reply_markup=_main_menu_kb())
+	await _send_ephemeral(update, context, reply_text)
 
 	if settings.feature_db:
 		with session_scope() as s2:
@@ -153,7 +173,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 		return
 
 	if not settings.feature_asr:
-		await _send_ephemeral(update, context, "Голос пока не подключён. Отправь текст ✍️", reply_markup=_main_menu_kb())
+		await _send_ephemeral(update, context, "Голос пока не подключён. Отправь текст ✍️")
 		return
 
 	voice = update.message.voice
@@ -164,16 +184,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			await file.download_to_drive(custom_path=str(dl_path))
 		except Exception as e:
 			logging.getLogger("download").error("Failed to download voice: %s", e)
-			await _send_ephemeral(update, context, "Не удалось скачать голосовое. Попробуй ещё раз 🙏", reply_markup=_main_menu_kb())
+			await _send_ephemeral(update, context, "Не удалось скачать голосовое. Попробуй ещё раз 🙏")
 			return
 		try:
 			text, _conf = await transcribe_audio(dl_path)
 		except ASRUnavailable:
-			await _send_ephemeral(update, context, "ASR временно недоступен. Добавь текстом, пожалуйста 🙏", reply_markup=_main_menu_kb())
+			await _send_ephemeral(update, context, "ASR временно недоступен. Добавь текстом, пожалуйста 🙏")
 			return
 		except Exception as e:
 			logging.getLogger("asr").error("Whisper failed: %s", e)
-			await _send_ephemeral(update, context, "Не удалось распознать голос. Попробуй ещё раз 🙏", reply_markup=_main_menu_kb())
+			await _send_ephemeral(update, context, "Не удалось распознать голос. Попробуй ещё раз 🙏")
 			return
 
 	user = None
@@ -211,7 +231,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			reply_text = "Сервис рекомендаций временно недоступен. Попробуй ещё раз позже 🙏"
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
 
-	await _send_ephemeral(update, context, reply_text, reply_markup=_main_menu_kb())
+	await _send_ephemeral(update, context, reply_text)
 
 	if settings.feature_db:
 		with session_scope() as s2:
@@ -233,17 +253,17 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 	data = query.data or ""
 	_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
 	if data == "menu_profile":
-		await _send_ephemeral(update, context, "Личный кабинет — скоро здесь можно будет настраивать профиль 👤", reply_markup=_main_menu_kb())
+		await _send_ephemeral(update, context, "Личный кабинет — скоро здесь можно будет настраивать профиль 👤")
 	elif data == "menu_workouts":
-		await _send_ephemeral(update, context, "Тренировки — персональные планы в разработке 💪", reply_markup=_main_menu_kb())
+		await _send_ephemeral(update, context, "Тренировки — персональные планы в разработке 💪")
 	elif data == "menu_week":
-		await _send_ephemeral(update, context, "Меню на неделю — скоро подберём рацион под цель 🥗", reply_markup=_main_menu_kb())
+		await _send_ephemeral(update, context, "Меню на неделю — скоро подберём рацион под цель 🥗")
 	elif data == "menu_ai_kbzhu_photo":
-		await _send_ephemeral(update, context, "AI КБЖУ по фото — загрузка снимка и анализ скоро будут доступны 📸", reply_markup=_main_menu_kb())
+		await _send_ephemeral(update, context, "AI КБЖУ по фото — загрузка снимка и анализ скоро будут доступны 📸")
 	elif data == "menu_support":
-		await _send_ephemeral(update, context, "Поддержка — напиши вопрос, мы поможем 🆘", reply_markup=_main_menu_kb())
+		await _send_ephemeral(update, context, "Поддержка — напиши вопрос, мы поможем 🆘")
 	elif data == "menu_loyalty":
-		await _send_ephemeral(update, context, "Бонусная программа — копи баллы и получай плюсы 🎁", reply_markup=_main_menu_kb())
+		await _send_ephemeral(update, context, "Бонусная программа — копи баллы и получай плюсы 🎁")
 	else:
 		await show_main_menu(update, context)
 
