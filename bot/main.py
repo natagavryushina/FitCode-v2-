@@ -42,9 +42,7 @@ async def _cleanup_chat_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: in
 
 async def _send_ephemeral(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
 	chat_id = update.effective_chat.id
-	# Delete previous ephemeral messages
 	await _cleanup_chat_messages(context, chat_id)
-	# Send fresh message
 	sent = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 	_ephemeral_messages.setdefault(chat_id, []).append(sent.message_id)
 
@@ -67,25 +65,31 @@ def _main_menu_kb() -> InlineKeyboardMarkup:
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(
-		update,
-		context,
-		"Выбирай, чем займёмся сейчас 👇",
-		reply_markup=_main_menu_kb(),
-	)
+	await _send_ephemeral(update, context, "Выбирай раздел 👇", reply_markup=_main_menu_kb())
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	# One-time start screen when DB is enabled
+	if settings.feature_db:
+		with session_scope() as s:
+			user = repo.get_or_create_user(
+				s,
+				tg_user_id=str(update.effective_user.id),
+				username=update.effective_user.username,
+				first_name=update.effective_user.first_name,
+				last_name=update.effective_user.last_name,
+			)
+			seen = repo.get_user_pref(s, user, "start_seen", False)
+			if not seen:
+				repo.set_user_pref(s, user, "start_seen", True)
+				await _send_ephemeral(update, context, "Старт! Я с тобой на одной волне 💪\n\nВыбирай раздел ниже.", reply_markup=_main_menu_kb())
+				return
+	# fallback or repeated /start
 	await show_main_menu(update, context)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(
-		update,
-		context,
-		"Коротко:\n— Личный кабинет\n— Тренировки\n— Меню неделю\n— AI КБЖУ по фото\n— Поддержка\n— Бонусная программа\n\nВыбирай раздел ниже.",
-		reply_markup=_main_menu_kb(),
-	)
+	await _send_ephemeral(update, context, "Подсказка: выбери нужный раздел в меню 👇", reply_markup=_main_menu_kb())
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -110,7 +114,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		categories = build_categories(None)
 		categories_json = json.dumps(categories, ensure_ascii=False)
 
-	reply_text = "Принял! Работаю над персональным ответом 💡\n\nВыбирай раздел ниже."
+	reply_text = "Принял! Выбирай раздел ниже."
 	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, user_text)
@@ -227,7 +231,6 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		return
 	await query.answer()
 	data = query.data or ""
-	# Also record the original message for cleanup
 	_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
 	if data == "menu_profile":
 		await _send_ephemeral(update, context, "Личный кабинет — скоро здесь можно будет настраивать профиль 👤", reply_markup=_main_menu_kb())

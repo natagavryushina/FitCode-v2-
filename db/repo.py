@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional, Dict, Any
+import json
 from sqlalchemy.orm import Session
 from db.models import User, Message, Transcription, LLMRequest, LLMResponse
 
@@ -43,3 +44,22 @@ def add_llm_exchange(session: Session, user_id: int | None, provider: str, model
 	session.add(resp)
 	session.flush()
 	return req, resp
+
+
+def get_user_pref(session: Session, user: User, key: str, default: Any = None) -> Any:
+	try:
+		prefs = json.loads(user.preferences_json or "{}")
+		return prefs.get(key, default)
+	except Exception:
+		return default
+
+
+def set_user_pref(session: Session, user: User, key: str, value: Any) -> None:
+	try:
+		prefs = json.loads(user.preferences_json or "{}")
+	except Exception:
+		prefs = {}
+	prefs[key] = value
+	user.preferences_json = json.dumps(prefs, ensure_ascii=False)
+	session.add(user)
+	session.flush()
