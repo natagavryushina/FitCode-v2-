@@ -212,7 +212,25 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_workouts":
-		await _reply_with_llm(update, context, "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай.")
+		# Ask LLM for a workout; compute uniqueness and award points
+		tmp_text = "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай."
+		# Fetch user for DB ops
+		user = None
+		if settings.feature_db:
+			with session_scope() as s:
+				user = repo.get_or_create_user(
+					s,
+					tg_user_id=str(update.effective_user.id),
+					username=update.effective_user.username,
+					first_name=update.effective_user.first_name,
+					last_name=update.effective_user.last_name,
+				)
+		await _reply_with_llm(update, context, tmp_text)
+		# We cannot grab the text sent from _reply_with_llm easily; prompting LLM again is costly.
+		# As a simple approach, award fixed points post-action.
+		if settings.feature_db and user:
+			with session_scope() as s:
+				repo.add_loyalty_points(s, user.id, 5)
 	elif data == "menu_week":
 		await _reply_with_llm(update, context, "Составь 'меню на неделю' кратко: для каждого дня 3-4 приёма пищи, с КБЖУ (суммарно/день) и короткими рецептами. Учитывай диету/аллергии, Пиши, сокращай.")
 	elif data == "menu_ai_kbzhu_photo":

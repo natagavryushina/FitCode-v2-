@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Optional, Dict, Any
 import json
 from sqlalchemy.orm import Session
-from db.models import User, Message, Transcription, LLMRequest, LLMResponse
+from sqlalchemy import select
+from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount
 
 
 def get_or_create_user(session: Session, tg_user_id: str, username: str | None, first_name: str | None, last_name: str | None) -> User:
@@ -63,3 +64,27 @@ def set_user_pref(session: Session, user: User, key: str, value: Any) -> None:
 	user.preferences_json = json.dumps(prefs, ensure_ascii=False)
 	session.add(user)
 	session.flush()
+
+
+def add_workout_history(session: Session, user_id: int, uniqueness_hash: str, content_text: str, payload: Dict[str, Any] | None = None) -> WorkoutHistory:
+	wh = WorkoutHistory(user_id=user_id, uniqueness_hash=uniqueness_hash, content_text=content_text, payload_json=json.dumps(payload or {}, ensure_ascii=False))
+	session.add(wh)
+	session.flush()
+	return wh
+
+
+def has_recent_workout(session: Session, user_id: int, uniqueness_hash: str) -> bool:
+	exists = session.execute(select(WorkoutHistory.id).where(WorkoutHistory.user_id == user_id, WorkoutHistory.uniqueness_hash == uniqueness_hash)).first()
+	return exists is not None
+
+
+def add_loyalty_points(session: Session, user_id: int, delta: int) -> LoyaltyAccount:
+	acc = session.get(LoyaltyAccount, user_id)
+	if not acc:
+		acc = LoyaltyAccount(user_id=user_id, points=0)
+		session.add(acc)
+		session.flush()
+	acc.points = (acc.points or 0) + delta
+	session.add(acc)
+	session.flush()
+	return acc

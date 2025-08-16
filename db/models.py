@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, CheckConstraint
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -88,3 +88,26 @@ class LLMResponse(Base):
 	tokens_completion = Column(Integer)
 	metadata_json = Column(Text)
 	created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class WorkoutHistory(Base):
+	__tablename__ = "workout_history"
+
+	id = Column(Integer, primary_key=True)
+	user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+	uniqueness_hash = Column(String, nullable=False)
+	payload_json = Column(Text)
+	content_text = Column(Text)
+	created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+
+	__table_args__ = (
+		UniqueConstraint("user_id", "uniqueness_hash", name="uq_user_workout_hash"),
+	)
+
+
+class LoyaltyAccount(Base):
+	__tablename__ = "loyalty_accounts"
+
+	user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+	points = Column(Integer, default=0)
+	updated_at = Column(String, default=lambda: datetime.utcnow().isoformat())
