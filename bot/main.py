@@ -6,7 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Dict, List
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
@@ -40,19 +40,19 @@ async def _cleanup_chat_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: in
 	_ephemeral_messages[chat_id] = []
 
 
+async def _safe_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int) -> None:
+	try:
+		await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+	except Exception:
+		# Bots may lack rights to delete user messages in private chats; ignore failures
+		pass
+
+
 async def _send_ephemeral(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
 	chat_id = update.effective_chat.id
 	await _cleanup_chat_messages(context, chat_id)
 	sent = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 	_ephemeral_messages.setdefault(chat_id, []).append(sent.message_id)
-
-
-def _main_reply_kb() -> ReplyKeyboardMarkup:
-	return ReplyKeyboardMarkup(
-		[[KeyboardButton(text="📋 Меню")]],
-		resize_keyboard=True,
-		one_time_keyboard=False,
-	)
 
 
 def _main_menu_kb() -> InlineKeyboardMarkup:
@@ -70,9 +70,13 @@ def _main_menu_kb() -> InlineKeyboardMarkup:
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	await _send_ephemeral(update, context, "Меню открыто. Выбирай раздел 👇", reply_markup=_main_menu_kb())
+	# Try to delete the triggering user message (e.g., /menu command or text)
+	if update.message:
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	# One-time start screen and then show inline menu
 	if settings.feature_db:
 		with session_scope() as s:
 			user = repo.get_or_create_user(
@@ -85,37 +89,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 			seen = repo.get_user_pref(s, user, "start_seen", False)
 			if not seen:
 				repo.set_user_pref(s, user, "start_seen", True)
-				await _cleanup_chat_messages(context, update.effective_chat.id)
-				await context.bot.send_message(
-					chat_id=update.effective_chat.id,
-					text="Добро пожаловать! Нажми <b>📋 Меню</b>, чтобы открыть разделы.",
-					parse_mode=ParseMode.HTML,
-					reply_markup=_main_reply_kb(),
-				)
-				return
-	# fallback or repeated /start
-	await _cleanup_chat_messages(context, update.effective_chat.id)
-	await context.bot.send_message(
-		chat_id=update.effective_chat.id,
-		text="Нажми <b>📋 Меню</b>, чтобы открыть разделы.",
-		parse_mode=ParseMode.HTML,
-		reply_markup=_main_reply_kb(),
-	)
+	# Always show menu (ephemeral) and delete the user's /start message
+	await show_main_menu(update, context)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await _send_ephemeral(update, context, "Подсказка: нажми <b>📋 Меню</b> внизу, чтобы открыть разделы.")
+	await _send_ephemeral(update, context, "Подсказка: используй меню ниже, чтобы выбрать раздел.", reply_markup=_main_menu_kb())
+	if update.message:
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message or not update.message.text:
 		return
 	user_text = update.message.text.strip()
-
-	# Open menu when user taps the persistent button
-	if user_text.lower() in {"📋 меню", "меню", "/menu", "menu"}:
-		await show_main_menu(update, context)
-		return
 
 	if settings.feature_db:
 		with session_scope() as s:
@@ -134,7 +121,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		categories = build_categories(None)
 		categories_json = json.dumps(categories, ensure_ascii=False)
 
-	reply_text = "Принял! Нажми <b>📋 Меню</b> для навигации."
+	reply_text = "Принял! Открыл меню 👇"
 	if settings.feature_llm:
 		try:
 			reply_text, usage = await chat_completion(categories, user_text)
@@ -154,7 +141,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 			reply_text = "Сервис рекомендаций временно недоступен. Попробуй ещё раз позже 🙏"
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
 
-	await _send_ephemeral(update, context, reply_text)
+	await show_main_menu(update, context)
+	# Delete the user's text message to keep chat clean
+	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 	if settings.feature_db:
 		with session_scope() as s2:
@@ -174,6 +163,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 	if not settings.feature_asr:
 		await _send_ephemeral(update, context, "Голос пока не подключён. Отправь текст ✍️")
+		if update.message:
+			await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 		return
 
 	voice = update.message.voice
@@ -185,15 +176,21 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 		except Exception as e:
 			logging.getLogger("download").error("Failed to download voice: %s", e)
 			await _send_ephemeral(update, context, "Не удалось скачать голосовое. Попробуй ещё раз 🙏")
+			if update.message:
+				await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 			return
 		try:
 			text, _conf = await transcribe_audio(dl_path)
 		except ASRUnavailable:
 			await _send_ephemeral(update, context, "ASR временно недоступен. Добавь текстом, пожалуйста 🙏")
+			if update.message:
+				await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 			return
 		except Exception as e:
 			logging.getLogger("asr").error("Whisper failed: %s", e)
 			await _send_ephemeral(update, context, "Не удалось распознать голос. Попробуй ещё раз 🙏")
+			if update.message:
+				await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 			return
 
 	user = None
@@ -232,6 +229,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			logging.getLogger("llm").error("OpenRouter error: %s", e)
 
 	await _send_ephemeral(update, context, reply_text)
+	# Delete the user's voice message
+	if update.message:
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 	if settings.feature_db:
 		with session_scope() as s2:
