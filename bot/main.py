@@ -181,11 +181,11 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 			if img:
 				safe_title = html.escape(title)
 				caption = safe_title if len(big) > 1000 else big
-				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=caption, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
-				if len(big) > 1000:
+				ok = await _send_photo_safe(context, update.effective_chat.id, img, caption, _main_menu_kb())
+				if ok and len(big) > 1000:
 					await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
-				return
+				if ok:
+					return
 		await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 	except (OpenRouterError, Exception) as e:
 		logging.getLogger("llm").exception("LLM error: %s", e)
@@ -194,11 +194,12 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 		if image_topic:
 			img = get_image_url(image_topic)
 			if img:
-				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=big if len(big) <= 1000 else title, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
-				if len(big) > 1000:
+				cap = big if len(big) <= 1000 else html.escape(title)
+				ok = await _send_photo_safe(context, update.effective_chat.id, img, cap, _main_menu_kb())
+				if ok and len(big) > 1000:
 					await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
-				return
+				if ok:
+					return
 		await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 
 
@@ -336,6 +337,16 @@ async def _send_text_big(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text:
 	for part in parts:
 		msg = await context.bot.send_message(chat_id=chat_id, text=part, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 		_ephemeral_messages.setdefault(chat_id, []).append(msg.message_id)
+
+
+async def _send_photo_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int, photo_url: str, caption_html: str, reply_markup: InlineKeyboardMarkup | None) -> bool:
+	try:
+		msg = await context.bot.send_photo(chat_id=chat_id, photo=photo_url, caption=caption_html, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+		_ephemeral_messages.setdefault(chat_id, []).append(msg.message_id)
+		return True
+	except Exception as e:
+		logging.getLogger("ui").warning("send_photo failed: %s", e)
+		return False
 
 
 async def run() -> None:
