@@ -29,17 +29,8 @@ _ephemeral_messages: Dict[int, List[int]] = {}
 _hw_waiting: Dict[int, bool] = {}
 
 
-BIG_BANNER = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-
 def format_big_message(title: str, body: str) -> str:
-	return (
-		f"{BIG_BANNER}\n"
-		f"<b>{title}</b>\n"
-		f"{BIG_BANNER}\n\n"
-		f"{body}\n\n"
-		f"{BIG_BANNER}"
-	)
+	return f"<b>{title}</b>\n\n{body}"
 
 
 async def on_startup() -> None:
@@ -217,7 +208,7 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 		await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 	except (OpenRouterError, Exception) as e:
 		logging.getLogger("llm").exception("LLM error: %s", e)
-		body = fallback_body or "Сервис рекомендаций временно недоступен. Попробуй позже 🙏"
+		body = fallback_body or "LLM временно недоступен. Попробуй позже 🙏"
 		big = format_big_message(title, html.escape(body))
 		if image_topic:
 			img = get_image_url(image_topic)
@@ -483,7 +474,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Неизвестная команда", "Кнопка обновлена. Откройте меню и попробуйте снова."), _main_menu_kb())
 	except Exception as e:
 		logging.getLogger("cb").exception("Callback handling failed: %s", e)
-		await _send_text_big(context, update.effective_chat.id, format_big_message("Ошибка", "Произошёл сбой. Откройте меню и попробуйте снова."), _main_menu_kb())
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Упс", "Что-то пошло не так. Открой меню и попробуй ещё раз."), _main_menu_kb())
 
 
 MAX_TG_TEXT = 4000
