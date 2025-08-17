@@ -18,6 +18,7 @@ from db import repo
 from services.categories import build_categories
 from services.openrouter_client import chat_completion, OpenRouterError
 from services.asr_whisper import transcribe_audio, ASRUnavailable
+from services.images import get_image_url
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -103,7 +104,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 		try:
 			msg = await context.bot.send_photo(
 				chat_id=update.effective_chat.id,
-				photo=settings.bot_logo_url,
+				photo=settings.bot_logo_url or get_image_url("welcome"),
 				caption=welcome,
 				parse_mode=ParseMode.HTML,
 				reply_markup=_main_menu_kb(),
@@ -113,8 +114,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	else:
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+		img = get_image_url("welcome")
+		if img:
+			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+		else:
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
@@ -223,28 +229,50 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 	if data == "menu_profile":
 		text = format_big_message("Личный кабинет", "Укажи пол, рост, вес, цель и инвентарь — так рекомендации будут точнее.")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
+		img = get_image_url("profile")
+		if img:
+			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+		else:
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_workouts":
 		prompt = "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай."
 		await _reply_with_llm(update, context, prompt, title="Тренировка на сегодня 💪")
+		img = get_image_url("workout")
+		if img:
+			await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img)
 	elif data == "menu_week":
 		prompt = "Составь 'меню на неделю' кратко: для каждого дня 3-4 приёма пищи, с КБЖУ (суммарно/день) и короткими рецептами. Учитывай диету/аллергии, Пиши, сокращай."
 		await _reply_with_llm(update, context, prompt, title="Меню на неделю 🥗")
+		img = get_image_url("week")
+		if img:
+			await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img)
 	elif data == "menu_ai_kbzhu_photo":
 		text = format_big_message("AI КБЖУ по фото", "Пришли фото блюда — оценю КБЖУ и дам советы 🍽️")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
+		img = get_image_url("kbzhu")
+		if img:
+			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+		else:
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_support":
 		text = format_big_message("Поддержка", "Опиши проблему или цель — отвечу и помогу 💬")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
+		img = get_image_url("support")
+		if img:
+			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+		else:
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_loyalty":
 		text = format_big_message("Бонусная программа", "Баллы начисляются за активность и отзывы. Скоро подробнее 🎁")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
+		img = get_image_url("loyalty")
+		if img:
+			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+		else:
+			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	else:
 		await help_command(update, context)
