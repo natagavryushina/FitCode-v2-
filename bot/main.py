@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List
 import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 from services.config import settings, assert_required_settings
@@ -139,7 +139,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
-async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str, title: str, image_topic: str | None = None) -> None:
+async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str, title: str, image_topic: str | None = None, fallback_body: str | None = None) -> None:
 	categories = build_categories(None)
 	user = None
 	if settings.feature_db:
@@ -153,8 +153,11 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 			)
 			categories = build_categories(user)
 	await _cleanup_chat_messages(context, update.effective_chat.id)
+	await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 	if not settings.feature_llm:
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("LLM отключён", "Включите FEATURE_LLM=1."), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+		body = fallback_body or "LLM отключён. Включите FEATURE_LLM=1."
+		msg_text = format_big_message(title, html.escape(body))
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=msg_text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 		return
 	try:
@@ -176,7 +179,6 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 		if image_topic:
 			img = get_image_url(image_topic)
 			if img:
-				# Telegram photo caption limit ~1024 chars
 				safe_title = html.escape(title)
 				caption = safe_title if len(big) > 1000 else big
 				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=caption, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
@@ -185,14 +187,19 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 					await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 				return
 		await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
-	except OpenRouterError as e:
-		logging.getLogger("llm").error("OpenRouter error: %s", e)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("Ошибка", "Сервис рекомендаций временно недоступен. Попробуй позже 🙏"), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
-	except Exception as e:
-		logging.getLogger("llm").exception("Unexpected error while replying with LLM: %s", e)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("Не удалось отправить ответ", "Произошёл сбой форматирования. Попробуй ещё раз."), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+	except (OpenRouterError, Exception) as e:
+		logging.getLogger("llm").exception("LLM error: %s", e)
+		body = fallback_body or "Сервис рекомендаций временно недоступен. Попробуй позже 🙏"
+		big = format_big_message(title, html.escape(body))
+		if image_topic:
+			img = get_image_url(image_topic)
+			if img:
+				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=big if len(big) <= 1000 else title, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+				if len(big) > 1000:
+					await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
+				return
+		await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -253,10 +260,27 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_workouts":
 		prompt = "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай."
-		await _reply_with_llm(update, context, prompt, title="Тренировка на сегодня 💪", image_topic="workout")
+		fallback = (
+			"Разминка: 5–7 мин кардио + суставная гимнастика\n\n"
+			"Основная часть:\n"
+			"1) Приседания — 4×10, отдых 90с\n"
+			"2) Жим гантелей лёжа — 4×8–10, отдых 90с\n"
+			"3) Тяга гантелей в наклоне — 4×10, отдых 90с\n"
+			"4) Выпады — 3×12 на ногу, отдых 60с\n"
+			"5) Планка — 3×40–60с, отдых 45с\n\n"
+			"Заминка: лёгкая растяжка 5 мин"
+		)
+		await _reply_with_llm(update, context, prompt, title="Тренировка на сегодня 💪", image_topic="workout", fallback_body=fallback)
 	elif data == "menu_week":
 		prompt = "Составь 'меню на неделю' кратко: для каждого дня 3-4 приёма пищи, с КБЖУ (суммарно/день) и короткими рецептами. Учитывай диету/аллергии, Пиши, сокращай."
-		await _reply_with_llm(update, context, prompt, title="Меню на неделю 🥗", image_topic="week")
+		fallback = (
+			"Пример дня: ~2200 ккал, Б/Ж/У 150/70/250\n\n"
+			"Завтрак: овсянка с йогуртом и ягодами\n"
+			"Обед: курица + рис + овощи\n"
+			"Перекус: творог с мёдом\n"
+			"Ужин: рыба + киноа + салат"
+		)
+		await _reply_with_llm(update, context, prompt, title="Меню на неделю 🥗", image_topic="week", fallback_body=fallback)
 	elif data == "menu_ai_kbzhu_photo":
 		text = format_big_message("AI КБЖУ по фото", "Пришли фото блюда — оценю КБЖУ и дам советы 🍽️")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
