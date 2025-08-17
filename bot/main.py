@@ -23,6 +23,19 @@ from services.asr_whisper import transcribe_audio, ASRUnavailable
 _ephemeral_messages: Dict[int, List[int]] = {}
 
 
+BIG_BANNER = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+
+def format_big_message(title: str, body: str) -> str:
+	return (
+		f"{BIG_BANNER}\n"
+		f"<b>{title}</b>\n"
+		f"{BIG_BANNER}\n\n"
+		f"{body}\n\n"
+		f"{BIG_BANNER}"
+	)
+
+
 async def on_startup() -> None:
 	if settings.feature_db:
 		Base.metadata.create_all(bind=engine)
@@ -51,14 +64,14 @@ def _main_menu_kb() -> InlineKeyboardMarkup:
 	return InlineKeyboardMarkup(
 		[
 			[
-				InlineKeyboardButton(text="👤 Личный кабинет", callback_data="menu_profile"),
-				InlineKeyboardButton(text="🏋️ Тренировки", callback_data="menu_workouts"),
-				InlineKeyboardButton(text="📅 Меню неделю", callback_data="menu_week"),
+				InlineKeyboardButton(text="👤 ЛИЧНЫЙ КАБИНЕТ", callback_data="menu_profile"),
+				InlineKeyboardButton(text="🏋️ ТРЕНИРОВКИ", callback_data="menu_workouts"),
+				InlineKeyboardButton(text="📅 МЕНЮ НЕДЕЛЮ", callback_data="menu_week"),
 			],
 			[
-				InlineKeyboardButton(text="🤖 AI КБЖУ по фото", callback_data="menu_ai_kbzhu_photo"),
-				InlineKeyboardButton(text="🆘 Поддержка", callback_data="menu_support"),
-				InlineKeyboardButton(text="🎁 Бонусная программа", callback_data="menu_loyalty"),
+				InlineKeyboardButton(text="🤖 AI КБЖУ ПО ФОТО", callback_data="menu_ai_kbzhu_photo"),
+				InlineKeyboardButton(text="🆘 ПОДДЕРЖКА", callback_data="menu_support"),
+				InlineKeyboardButton(text="🎁 БОНУСЫ", callback_data="menu_loyalty"),
 			],
 		]
 	)
@@ -79,13 +92,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 				repo.set_user_pref(s, user, "start_seen", True)
 
 	await _cleanup_chat_messages(context, update.effective_chat.id)
-	welcome = (
-		"<b>Привет!</b> Я твой персональный тренер и нутрициолог.\n\n"
+	body = (
 		"— Помогу с тренировками под цель и уровень 💪\n"
 		"— Подберу питание и КБЖУ 🥗\n"
 		"— Отвечу на вопросы коротко и по делу ✨\n\n"
 		"Отправь свой запрос или цели — и я подберу лучшие программы тренировок под твой запрос."
 	)
+	welcome = format_big_message("Привет! Я твой тренер и нутрициолог", body)
 	if settings.bot_logo_url:
 		try:
 			msg = await context.bot.send_photo(
@@ -108,18 +121,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	text = (
-		"Выбери раздел в меню ниже или отправь голос/текст.\n"
-		"Я подберу тренировку, меню на неделю и помогу с КБЖУ."
+	text = format_big_message(
+		"Как начать",
+		"Выбери раздел ниже или отправь голос/текст. Я подберу тренировку, меню на неделю и помогу с КБЖУ.",
 	)
 	await _cleanup_chat_messages(context, update.effective_chat.id)
-	msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb())
+	msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 	_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
-async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str) -> None:
+async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str, title: str) -> None:
 	categories = build_categories(None)
 	user = None
 	if settings.feature_db:
@@ -134,11 +147,12 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 			categories = build_categories(user)
 	await _cleanup_chat_messages(context, update.effective_chat.id)
 	if not settings.feature_llm:
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="LLM отключён. Включите FEATURE_LLM=1.")
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("LLM отключён", "Включите FEATURE_LLM=1."), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 		return
 	try:
 		reply_text, usage = await chat_completion(categories, user_text)
+		big = format_big_message(title, reply_text)
 		if settings.feature_db and user:
 			with session_scope() as s:
 				repo.add_llm_exchange(
@@ -151,11 +165,11 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 					response_text=reply_text,
 					usage=usage,
 				)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=reply_text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	except OpenRouterError as e:
 		logging.getLogger("llm").error("OpenRouter error: %s", e)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="Сервис рекомендаций временно недоступен. Попробуй позже 🙏", reply_markup=_main_menu_kb())
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("Ошибка", "Сервис рекомендаций временно недоступен. Попробуй позже 🙏"), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 
 
@@ -163,7 +177,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 	if not update.message or not update.message.text:
 		return
 	user_text = update.message.text.strip()
-	await _reply_with_llm(update, context, user_text)
+	await _reply_with_llm(update, context, user_text, title="Ответ готов ✨")
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
@@ -194,7 +208,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 			if update.message:
 				await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 			return
-	await _reply_with_llm(update, context, text)
+	await _reply_with_llm(update, context, text, title="Расшифровал и ответил 🎤")
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -207,43 +221,30 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 	data = query.data or ""
 	_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
 	if data == "menu_profile":
-		text = "Профиль: укажи пол, рост, вес, цель, инвентарь. Это поможет точнее подбирать тренировки и питание."
+		text = format_big_message("Личный кабинет", "Укажи пол, рост, вес, цель и инвентарь — так рекомендации будут точнее.")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb())
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_workouts":
-		# Ask LLM for a workout; compute uniqueness and award points
-		tmp_text = "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай."
-		# Fetch user for DB ops
-		user = None
-		if settings.feature_db:
-			with session_scope() as s:
-				user = repo.get_or_create_user(
-					s,
-					tg_user_id=str(update.effective_user.id),
-					username=update.effective_user.username,
-					first_name=update.effective_user.first_name,
-					last_name=update.effective_user.last_name,
-				)
-		await _reply_with_llm(update, context, tmp_text)
-		# We cannot grab the text sent from _reply_with_llm easily; prompting LLM again is costly.
-		# As a simple approach, award fixed points post-action.
-		if settings.feature_db and user:
-			with session_scope() as s:
-				repo.add_loyalty_points(s, user.id, 5)
+		prompt = "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай."
+		await _reply_with_llm(update, context, prompt, title="Тренировка на сегодня 💪")
 	elif data == "menu_week":
-		await _reply_with_llm(update, context, "Составь 'меню на неделю' кратко: для каждого дня 3-4 приёма пищи, с КБЖУ (суммарно/день) и короткими рецептами. Учитывай диету/аллергии, Пиши, сокращай.")
+		prompt = "Составь 'меню на неделю' кратко: для каждого дня 3-4 приёма пищи, с КБЖУ (суммарно/день) и короткими рецептами. Учитывай диету/аллергии, Пиши, сокращай."
+		await _reply_with_llm(update, context, prompt, title="Меню на неделю 🥗")
 	elif data == "menu_ai_kbzhu_photo":
+		text = format_big_message("AI КБЖУ по фото", "Пришли фото блюда — оценю КБЖУ и дам советы 🍽️")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="Пришли фото блюда — оценю КБЖУ и дам советы 🍽️", reply_markup=_main_menu_kb())
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_support":
+		text = format_big_message("Поддержка", "Опиши проблему или цель — отвечу и помогу 💬")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="Поддержка: опиши проблему или цель — отвечу и помогу 💬", reply_markup=_main_menu_kb())
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_loyalty":
+		text = format_big_message("Бонусная программа", "Баллы начисляются за активность и отзывы. Скоро подробнее 🎁")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text="Бонусы: за активность и отзывы — баллы и плюсы. Скоро подробнее 🎁", reply_markup=_main_menu_kb())
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	else:
 		await help_command(update, context)
