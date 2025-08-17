@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Optional, Dict, Any
 import json
+from datetime import date, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import select
-from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount
+from sqlalchemy import select, and_
+from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount, UserWorkoutPlan, UserWorkoutDay, MealPlan, MealDay
 
 
 def get_or_create_user(session: Session, tg_user_id: str, username: str | None, first_name: str | None, last_name: str | None) -> User:
@@ -88,3 +89,61 @@ def add_loyalty_points(session: Session, user_id: int, delta: int) -> LoyaltyAcc
 	session.add(acc)
 	session.flush()
 	return acc
+
+
+def get_or_create_active_workout_plan(session: Session, user_id: int, start_date_str: str, end_date_str: str) -> UserWorkoutPlan:
+	plan = session.execute(
+		select(UserWorkoutPlan).where(
+			and_(UserWorkoutPlan.user_id == user_id, UserWorkoutPlan.start_date == start_date_str, UserWorkoutPlan.is_active == 1)
+		)
+	).scalar_one_or_none()
+	if plan:
+		return plan
+	plan = UserWorkoutPlan(user_id=user_id, start_date=start_date_str, end_date=end_date_str, is_active=1)
+	session.add(plan)
+	session.flush()
+	return plan
+
+
+def upsert_workout_day(session: Session, plan_id: int, day_index: int, title: str, content_text: str) -> UserWorkoutDay:
+	day = session.execute(select(UserWorkoutDay).where(and_(UserWorkoutDay.plan_id == plan_id, UserWorkoutDay.day_index == day_index))).scalar_one_or_none()
+	if day:
+		day.title = title
+		day.content_text = content_text
+	else:
+		day = UserWorkoutDay(plan_id=plan_id, day_index=day_index, title=title, content_text=content_text)
+		session.add(day)
+	session.flush()
+	return day
+
+
+def get_workout_day(session: Session, plan_id: int, day_index: int) -> Optional[UserWorkoutDay]:
+	return session.execute(select(UserWorkoutDay).where(and_(UserWorkoutDay.plan_id == plan_id, UserWorkoutDay.day_index == day_index))).scalar_one_or_none()
+
+
+def get_or_create_active_meal_plan(session: Session, user_id: int, start_date_str: str, end_date_str: str) -> MealPlan:
+	plan = session.execute(
+		select(MealPlan).where(and_(MealPlan.user_id == user_id, MealPlan.start_date == start_date_str, MealPlan.is_active == 1))
+	).scalar_one_or_none()
+	if plan:
+		return plan
+	plan = MealPlan(user_id=user_id, start_date=start_date_str, end_date=end_date_str, is_active=1)
+	session.add(plan)
+	session.flush()
+	return plan
+
+
+def upsert_meal_day(session: Session, meal_plan_id: int, day_index: int, title: str, content_text: str) -> MealDay:
+	day = session.execute(select(MealDay).where(and_(MealDay.meal_plan_id == meal_plan_id, MealDay.day_index == day_index))).scalar_one_or_none()
+	if day:
+		day.title = title
+		day.content_text = content_text
+	else:
+		day = MealDay(meal_plan_id=meal_plan_id, day_index=day_index, title=title, content_text=content_text)
+		session.add(day)
+	session.flush()
+	return day
+
+
+def get_meal_day(session: Session, meal_plan_id: int, day_index: int) -> Optional[MealDay]:
+	return session.execute(select(MealDay).where(and_(MealDay.meal_plan_id == meal_plan_id, MealDay.day_index == day_index))).scalar_one_or_none()

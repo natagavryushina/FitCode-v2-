@@ -20,6 +20,7 @@ from services.categories import build_categories
 from services.openrouter_client import chat_completion, OpenRouterError
 from services.asr_whisper import transcribe_audio, ASRUnavailable
 from services.images import get_image_url
+from services.planner import ensure_week_workouts, ensure_week_meals
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -77,6 +78,21 @@ def _main_menu_kb() -> InlineKeyboardMarkup:
 			],
 		]
 	)
+
+
+def _days_kb(prefix: str) -> InlineKeyboardMarkup:
+	rows = []
+	row = []
+	for i in range(7):
+		btn = InlineKeyboardButton(text=f"Д{i+1}", callback_data=f"{prefix}{i}")
+		row.append(btn)
+		if len(row) == 4:
+			rows.append(row)
+			row = []
+	if row:
+		rows.append(row)
+	rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")])
+	return InlineKeyboardMarkup(rows)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -260,28 +276,89 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_workouts":
-		prompt = "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай."
-		fallback = (
-			"Разминка: 5–7 мин кардио + суставная гимнастика\n\n"
-			"Основная часть:\n"
-			"1) Приседания — 4×10, отдых 90с\n"
-			"2) Жим гантелей лёжа — 4×8–10, отдых 90с\n"
-			"3) Тяга гантелей в наклоне — 4×10, отдых 90с\n"
-			"4) Выпады — 3×12 на ногу, отдых 60с\n"
-			"5) Планка — 3×40–60с, отдых 45с\n\n"
-			"Заминка: лёгкая растяжка 5 мин"
-		)
-		await _reply_with_llm(update, context, prompt, title="Тренировка на сегодня 💪", image_topic="workout", fallback_body=fallback)
+		# Ensure plan and show today
+		user = None
+		if settings.feature_db:
+			with session_scope() as s:
+				user = repo.get_or_create_user(
+					s,
+					tg_user_id=str(update.effective_user.id),
+					username=update.effective_user.username,
+					first_name=update.effective_user.first_name,
+					last_name=update.effective_user.last_name,
+				)
+		if not user:
+			await help_command(update, context)
+			return
+		plan_id, today_idx = await ensure_week_workouts(user)
+		with session_scope() as s:
+			day = repo.get_workout_day(s, plan_id, today_idx)
+			title = day.title if day else f"День {today_idx+1}"
+			body = day.content_text if day else "Сегодня отдых/мобилити 20 мин"
+		text = format_big_message(f"Тренировки — {title}", html.escape(body))
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		img = get_image_url("workout")
+		if img:
+			ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "Тренировки", _days_kb("workout_day_"))
+			if ok and len(text) > 1000:
+				await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
+				return
+		await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
+	elif data.startswith("workout_day_"):
+		idx = int(data.split("_")[-1])
+		user = None
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+		plan_id, _ = await ensure_week_workouts(user)
+		with session_scope() as s2:
+			day = repo.get_workout_day(s2, plan_id, idx)
+			title = day.title if day else f"День {idx+1}"
+			body = day.content_text if day else "Отдых/мобилити"
+		text = format_big_message(f"Тренировки — {title}", html.escape(body))
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
 	elif data == "menu_week":
-		prompt = "Составь 'меню на неделю' кратко: для каждого дня 3-4 приёма пищи, с КБЖУ (суммарно/день) и короткими рецептами. Учитывай диету/аллергии, Пиши, сокращай."
-		fallback = (
-			"Пример дня: ~2200 ккал, Б/Ж/У 150/70/250\n\n"
-			"Завтрак: овсянка с йогуртом и ягодами\n"
-			"Обед: курица + рис + овощи\n"
-			"Перекус: творог с мёдом\n"
-			"Ужин: рыба + киноа + салат"
-		)
-		await _reply_with_llm(update, context, prompt, title="Меню на неделю 🥗", image_topic="week", fallback_body=fallback)
+		user = None
+		if settings.feature_db:
+			with session_scope() as s:
+				user = repo.get_or_create_user(
+					s,
+					tg_user_id=str(update.effective_user.id),
+					username=update.effective_user.username,
+					first_name=update.effective_user.first_name,
+					last_name=update.effective_user.last_name,
+				)
+		if not user:
+			await help_command(update, context)
+			return
+		meal_plan_id, today_idx = await ensure_week_meals(user)
+		with session_scope() as s:
+			day = repo.get_meal_day(s, meal_plan_id, today_idx)
+			title = day.title if day else f"День {today_idx+1}"
+			body = day.content_text if day else "~2200 ккал, 3–4 приёма пищи"
+		text = format_big_message(f"Меню — {title}", html.escape(body))
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		img = get_image_url("week")
+		if img:
+			ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "Меню недели", _days_kb("meals_day_"))
+			if ok and len(text) > 1000:
+				await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
+				return
+		await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
+	elif data.startswith("meals_day_"):
+		idx = int(data.split("_")[-1])
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+		meal_plan_id, _ = await ensure_week_meals(user)
+		with session_scope() as s2:
+			day = repo.get_meal_day(s2, meal_plan_id, idx)
+			title = day.title if day else f"День {idx+1}"
+			body = day.content_text if day else "~2200 ккал"
+		text = format_big_message(f"Меню — {title}", html.escape(body))
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
+	elif data == "menu_root":
+		await start_command(update, context)
 	elif data == "menu_ai_kbzhu_photo":
 		text = format_big_message("AI КБЖУ по фото", "Пришли фото блюда — оценю КБЖУ и дам советы 🍽️")
 		await _cleanup_chat_messages(context, update.effective_chat.id)

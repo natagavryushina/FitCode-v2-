@@ -111,3 +111,53 @@ class LoyaltyAccount(Base):
 	user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
 	points = Column(Integer, default=0)
 	updated_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class UserWorkoutPlan(Base):
+	__tablename__ = "user_workout_plans"
+
+	id = Column(Integer, primary_key=True)
+	user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+	start_date = Column(String)
+	end_date = Column(String)
+	is_active = Column(Integer, default=1)
+	created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class UserWorkoutDay(Base):
+	__tablename__ = "user_workout_days"
+
+	id = Column(Integer, primary_key=True)
+	plan_id = Column(Integer, ForeignKey("user_workout_plans.id"), nullable=False)
+	day_index = Column(Integer)  # 0..6
+	title = Column(String)
+	content_text = Column(Text)
+
+	__table_args__ = (
+		UniqueConstraint("plan_id", "day_index", name="uq_workout_day_unique"),
+	)
+
+
+class MealPlan(Base):
+	__tablename__ = "meal_plans"
+
+	id = Column(Integer, primary_key=True)
+	user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+	start_date = Column(String)
+	end_date = Column(String)
+	is_active = Column(Integer, default=1)
+	created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class MealDay(Base):
+	__tablename__ = "meal_days"
+
+	id = Column(Integer, primary_key=True)
+	meal_plan_id = Column(Integer, ForeignKey("meal_plans.id"), nullable=False)
+	day_index = Column(Integer)
+	title = Column(String)
+	content_text = Column(Text)
+
+	__table_args__ = (
+		UniqueConstraint("meal_plan_id", "day_index", name="uq_meal_day_unique"),
+	)
