@@ -162,3 +162,23 @@ def mark_workout_completed(session: Session, user_id: int, plan_id: int, day_ind
 def is_workout_completed(session: Session, user_id: int, plan_id: int, day_index: int) -> bool:
 	rec = session.execute(select(WorkoutCompletion.id).where(and_(WorkoutCompletion.user_id == user_id, WorkoutCompletion.plan_id == plan_id, WorkoutCompletion.day_index == day_index))).first()
 	return rec is not None
+
+
+def update_user_fields(session: Session, user: User, **fields: Any) -> User:
+	for k, v in fields.items():
+		setattr(user, k, v)
+	session.add(user)
+	session.flush()
+	return user
+
+
+def set_user_list_pref(session: Session, user: User, key: str, values: list[str]) -> None:
+	prefs = {}
+	try:
+		prefs = json.loads(user.preferences_json or "{}")
+	except Exception:
+		prefs = {}
+	prefs[key] = values
+	user.preferences_json = json.dumps(prefs, ensure_ascii=False)
+	session.add(user)
+	session.flush()

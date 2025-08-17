@@ -24,6 +24,7 @@ from services.planner import ensure_week_workouts, ensure_week_meals
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
+_hw_waiting: Dict[int, bool] = {}
 
 
 BIG_BANNER = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -232,6 +233,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 	if not update.message or not update.message.text:
 		return
 	user_text = update.message.text.strip()
+	# Handle HW input if awaiting
+	if _hw_waiting.get(update.effective_chat.id):
+		parts = user_text.replace(",", ".").split()
+		if len(parts) >= 2:
+			try:
+				h = int(float(parts[0]))
+				w = int(float(parts[1]))
+				if 100 <= h <= 250 and 35 <= w <= 300:
+					with session_scope() as s:
+						user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+						repo.update_user_fields(s, user, height_cm=h, weight_kg=w)
+					_hw_waiting[update.effective_chat.id] = False
+					await _cleanup_chat_messages(context, update.effective_chat.id)
+					await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", f"Рост: {h} см, Вес: {w} кг"), _profile_kb())
+					await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+					return
+			except Exception:
+				pass
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Ошибка", "Формат: 180 75. Попробуй ещё раз."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
 	await _reply_with_llm(update, context, user_text, title="Ответ готов ✨")
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -276,14 +298,88 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 	data = query.data or ""
 	_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
 	if data == "menu_profile":
-		text = format_big_message("Личный кабинет", "Укажи пол, рост, вес, цель и инвентарь — так рекомендации будут точнее.")
+		# Show profile menu
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+		text = format_big_message("Личный кабинет", "Измени параметры профиля: пол, уровень, рост/вес, цели и инвентарь.")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
-		img = get_image_url("profile")
-		if img:
-			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-		else:
-			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=_main_menu_kb(), parse_mode=ParseMode.HTML)
-		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+		await _send_text_big(context, update.effective_chat.id, text, _profile_kb())
+	elif data == "profile_sex":
+		kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="Муж", callback_data="profile_sex_set_male"), InlineKeyboardButton(text="Жен", callback_data="profile_sex_set_female")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Пол", "Выбери пол"), kb)
+	elif data.startswith("profile_sex_set_"):
+		sex = data.split("_")[-1]
+		if sex not in PROFILE_SEX:
+			await help_command(update, context)
+			return
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			repo.update_user_fields(s, user, sex=sex)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", f"Пол: {sex}"), _profile_kb())
+	elif data == "profile_level":
+		kb = InlineKeyboardMarkup([[InlineKeyboardButton(text=lbl, callback_data=f"profile_level_set_{key}") for lbl, key in [("Новичок","beginner"),("Средний","intermediate"),("Продвинутый","advanced")]], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Уровень", "Выбери тренировочный уровень"), kb)
+	elif data.startswith("profile_level_set_"):
+		lvl = data.split("_")[-1]
+		if lvl not in PROFILE_LEVEL:
+			await help_command(update, context)
+			return
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			repo.update_user_fields(s, user, level=lvl)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", f"Уровень: {lvl}"), _profile_kb())
+	elif data == "profile_hw":
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		_hw_waiting[update.effective_chat.id] = True
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Рост/Вес", "Отправь текстом в формате: 180 75"), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
+	elif data == "profile_goals":
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			prefs = json.loads(user.preferences_json or "{}")
+			selected = set(prefs.get("goals", []))
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Цели", "Выбери одну или несколько целей"), _toggle_list_kb("goals_", GOAL_CHOICES, selected))
+	elif data.startswith("goals_"):
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			prefs = json.loads(user.preferences_json or "{}")
+			selected = set(prefs.get("goals", []))
+			val = data.split("_")[-1]
+			if val == "done":
+				repo.set_user_list_pref(s, user, "goals", list(selected))
+				await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", "Цели сохранены"), _profile_kb())
+				return
+			if val in GOAL_CHOICES:
+				if val in selected:
+					selected.remove(val)
+				else:
+					selected.add(val)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Цели", "Выбери одну или несколько целей"), _toggle_list_kb("goals_", GOAL_CHOICES, selected))
+	elif data == "profile_eq":
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			prefs = json.loads(user.preferences_json or "{}")
+			selected = set(prefs.get("equipment", []))
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Инвентарь", "Отметь доступный инвентарь"), _toggle_list_kb("eq_", EQUIPMENT_CHOICES, selected))
+	elif data.startswith("eq_"):
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			prefs = json.loads(user.preferences_json or "{}")
+			selected = set(prefs.get("equipment", []))
+			val = data.split("_")[-1]
+			if val == "done":
+				repo.set_user_list_pref(s, user, "equipment", list(selected))
+				await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", "Инвентарь сохранён"), _profile_kb())
+				return
+			if val in EQUIPMENT_CHOICES:
+				if val in selected:
+					selected.remove(val)
+				else:
+					selected.add(val)
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Инвентарь", "Отметь доступный инвентарь"), _toggle_list_kb("eq_", EQUIPMENT_CHOICES, selected))
 	elif data == "menu_workouts":
 		# Ensure plan and show today
 		user = None
