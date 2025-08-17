@@ -138,7 +138,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
-async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str, title: str) -> None:
+async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str, title: str, image_topic: str | None = None) -> None:
 	categories = build_categories(None)
 	user = None
 	if settings.feature_db:
@@ -171,6 +171,12 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 					response_text=reply_text,
 					usage=usage,
 				)
+		if image_topic:
+			img = get_image_url(image_topic)
+			if img:
+				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+				return
 		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	except OpenRouterError as e:
@@ -237,16 +243,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	elif data == "menu_workouts":
 		prompt = "Сгенерируй 'тренировку на сегодня' кратко: 5-7 упражнений, подходы/повторы/отдых, разминка и заминка. Учитывай безопасность. Тон: дружелюбный, Пиши, сокращай."
-		await _reply_with_llm(update, context, prompt, title="Тренировка на сегодня 💪")
-		img = get_image_url("workout")
-		if img:
-			await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img)
+		await _reply_with_llm(update, context, prompt, title="Тренировка на сегодня 💪", image_topic="workout")
 	elif data == "menu_week":
 		prompt = "Составь 'меню на неделю' кратко: для каждого дня 3-4 приёма пищи, с КБЖУ (суммарно/день) и короткими рецептами. Учитывай диету/аллергии, Пиши, сокращай."
-		await _reply_with_llm(update, context, prompt, title="Меню на неделю 🥗")
-		img = get_image_url("week")
-		if img:
-			await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img)
+		await _reply_with_llm(update, context, prompt, title="Меню на неделю 🥗", image_topic="week")
 	elif data == "menu_ai_kbzhu_photo":
 		text = format_big_message("AI КБЖУ по фото", "Пришли фото блюда — оценю КБЖУ и дам советы 🍽️")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
