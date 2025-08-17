@@ -95,6 +95,15 @@ def _days_kb(prefix: str) -> InlineKeyboardMarkup:
 	return InlineKeyboardMarkup(rows)
 
 
+def _workout_day_kb(plan_id: int, day_index: int) -> InlineKeyboardMarkup:
+	return InlineKeyboardMarkup([
+		[
+			InlineKeyboardButton(text="✅ Выполнено", callback_data=f"workout_done_{plan_id}_{day_index}"),
+			InlineKeyboardButton(text="⬅️ К дням", callback_data="menu_workouts"),
+		]
+	])
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if settings.feature_db:
 		with session_scope() as s:
@@ -315,6 +324,17 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			title = day.title if day else f"День {idx+1}"
 			body = day.content_text if day else "Отдых/мобилити"
 		text = format_big_message(f"Тренировки — {title}", html.escape(body))
+		await _cleanup_chat_messages(context, update.effective_chat.id)
+		await _send_text_big(context, update.effective_chat.id, text, _workout_day_kb(plan_id, idx))
+	elif data.startswith("workout_done_"):
+		_, _, plan_id_str, idx_str = data.split("_")
+		plan_id = int(plan_id_str)
+		idx = int(idx_str)
+		with session_scope() as s:
+			user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			repo.mark_workout_completed(s, user.id, plan_id, idx)
+			repo.add_loyalty_points(s, user.id, 10)
+		text = format_big_message("Отлично!", f"День {idx+1} отмечен как выполненный. +10 баллов 🎉")
 		await _cleanup_chat_messages(context, update.effective_chat.id)
 		await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
 	elif data == "menu_week":

@@ -161,3 +161,18 @@ class MealDay(Base):
 	__table_args__ = (
 		UniqueConstraint("meal_plan_id", "day_index", name="uq_meal_day_unique"),
 	)
+
+
+class WorkoutCompletion(Base):
+	__tablename__ = "workout_completions"
+
+	id = Column(Integer, primary_key=True)
+	user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+	plan_id = Column(Integer, ForeignKey("user_workout_plans.id"), nullable=False)
+	day_index = Column(Integer, nullable=False)
+	status = Column(String, default="done")
+	completed_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+
+	__table_args__ = (
+		UniqueConstraint("user_id", "plan_id", "day_index", name="uq_workout_completion_unique"),
+	)

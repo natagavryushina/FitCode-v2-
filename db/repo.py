@@ -5,7 +5,7 @@ import json
 from datetime import date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
-from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount, UserWorkoutPlan, UserWorkoutDay, MealPlan, MealDay
+from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount, UserWorkoutPlan, UserWorkoutDay, MealPlan, MealDay, WorkoutCompletion
 
 
 def get_or_create_user(session: Session, tg_user_id: str, username: str | None, first_name: str | None, last_name: str | None) -> User:
@@ -147,3 +147,18 @@ def upsert_meal_day(session: Session, meal_plan_id: int, day_index: int, title: 
 
 def get_meal_day(session: Session, meal_plan_id: int, day_index: int) -> Optional[MealDay]:
 	return session.execute(select(MealDay).where(and_(MealDay.meal_plan_id == meal_plan_id, MealDay.day_index == day_index))).scalar_one_or_none()
+
+
+def mark_workout_completed(session: Session, user_id: int, plan_id: int, day_index: int) -> WorkoutCompletion:
+	rec = session.execute(select(WorkoutCompletion).where(and_(WorkoutCompletion.user_id == user_id, WorkoutCompletion.plan_id == plan_id, WorkoutCompletion.day_index == day_index))).scalar_one_or_none()
+	if rec:
+		return rec
+	rec = WorkoutCompletion(user_id=user_id, plan_id=plan_id, day_index=day_index, status="done")
+	session.add(rec)
+	session.flush()
+	return rec
+
+
+def is_workout_completed(session: Session, user_id: int, plan_id: int, day_index: int) -> bool:
+	rec = session.execute(select(WorkoutCompletion.id).where(and_(WorkoutCompletion.user_id == user_id, WorkoutCompletion.plan_id == plan_id, WorkoutCompletion.day_index == day_index))).first()
+	return rec is not None
