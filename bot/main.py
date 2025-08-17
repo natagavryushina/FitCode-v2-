@@ -6,6 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Dict, List
+import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -158,7 +159,8 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 		return
 	try:
 		reply_text, usage = await chat_completion(categories, user_text)
-		big = format_big_message(title, reply_text)
+		safe_body = html.escape(reply_text or "")
+		big = format_big_message(title, safe_body)
 		if settings.feature_db and user:
 			with session_scope() as s:
 				repo.add_llm_exchange(
@@ -174,14 +176,23 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 		if image_topic:
 			img = get_image_url(image_topic)
 			if img:
-				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+				# Telegram photo caption limit ~1024 chars
+				caption = title if len(big) > 1000 else big
+				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=caption, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+				if len(big) > 1000:
+					msg2 = await context.bot.send_message(chat_id=update.effective_chat.id, text=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+					_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg2.message_id)
 				return
 		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	except OpenRouterError as e:
 		logging.getLogger("llm").error("OpenRouter error: %s", e)
 		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("Ошибка", "Сервис рекомендаций временно недоступен. Попробуй позже 🙏"), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+	except Exception as e:
+		logging.getLogger("llm").exception("Unexpected error while replying with LLM: %s", e)
+		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("Не удалось отправить ответ", "Произошёл сбой форматирования. Попробуй ещё раз."), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 
 
