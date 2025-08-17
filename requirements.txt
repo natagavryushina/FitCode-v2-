@@ -1,0 +1,9 @@
+python-telegram-bot==21.6
+SQLAlchemy==2.0.32
+httpx==0.27.2
+python-dotenv==1.0.1
+APScheduler==3.10.4
+openai==1.37.1
+ffmpeg-python==0.2.0
+aiosqlite==0.20.0
+orjson==3.10.6
