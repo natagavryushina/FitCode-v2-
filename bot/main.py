@@ -177,15 +177,14 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 			img = get_image_url(image_topic)
 			if img:
 				# Telegram photo caption limit ~1024 chars
-				caption = title if len(big) > 1000 else big
+				safe_title = html.escape(title)
+				caption = safe_title if len(big) > 1000 else big
 				msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=caption, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 				if len(big) > 1000:
-					msg2 = await context.bot.send_message(chat_id=update.effective_chat.id, text=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-					_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg2.message_id)
+					await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 				return
-		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=big, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+		await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 	except OpenRouterError as e:
 		logging.getLogger("llm").error("OpenRouter error: %s", e)
 		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=format_big_message("Ошибка", "Сервис рекомендаций временно недоступен. Попробуй позже 🙏"), parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
@@ -287,6 +286,32 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 	else:
 		await help_command(update, context)
+
+
+MAX_TG_TEXT = 4000
+
+
+def _split_text_chunks(text: str, limit: int = MAX_TG_TEXT) -> List[str]:
+	if len(text) <= limit:
+		return [text]
+	chunks: List[str] = []
+	start = 0
+	while start < len(text):
+		end = min(start + limit, len(text))
+		# try split on nearest newline for readability
+		newline = text.rfind("\n", start, end)
+		if newline != -1 and newline > start + 1000:
+			end = newline
+		chunks.append(text[start:end])
+		start = end
+	return chunks
+
+
+async def _send_text_big(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str, reply_markup: InlineKeyboardMarkup | None) -> None:
+	parts = _split_text_chunks(text)
+	for part in parts:
+		msg = await context.bot.send_message(chat_id=chat_id, text=part, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+		_ephemeral_messages.setdefault(chat_id, []).append(msg.message_id)
 
 
 async def run() -> None:
