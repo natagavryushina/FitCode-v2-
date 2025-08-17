@@ -21,6 +21,8 @@ from services.openrouter_client import chat_completion, OpenRouterError
 from services.asr_whisper import transcribe_audio, ASRUnavailable
 from services.images import get_image_url
 from services.planner import ensure_week_workouts, ensure_week_meals
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from services.reminder import setup_scheduler
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -554,6 +556,12 @@ async def run() -> None:
 	await on_startup()
 
 	app = ApplicationBuilder().token(settings.telegram_bot_token).build()
+	scheduler: AsyncIOScheduler | None = None
+	if settings.feature_reminder:
+		scheduler = AsyncIOScheduler()
+		scheduler.start()
+		setup_scheduler(scheduler, app.bot, settings.reminder_hour)
+
 	app.add_handler(CommandHandler("start", start_command))
 	app.add_handler(CommandHandler("help", help_command))
 	app.add_handler(CallbackQueryHandler(handle_menu_callback))
@@ -569,6 +577,8 @@ async def run() -> None:
 	finally:
 		await app.stop()
 		await app.shutdown()
+		if scheduler:
+			scheduler.shutdown(wait=False)
 
 
 if __name__ == "__main__":

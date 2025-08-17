@@ -29,6 +29,8 @@ class AppSettings:
 	feature_db: bool = env_bool("FEATURE_DB", "0")
 	feature_asr: bool = env_bool("FEATURE_ASR", "0")
 	feature_llm: bool = env_bool("FEATURE_LLM", "0")
+	feature_reminder: bool = env_bool("FEATURE_REMINDER", "0")
+	reminder_hour: int = int(os.getenv("REMINDER_HOUR", "9"))
 
 
 settings = AppSettings()
