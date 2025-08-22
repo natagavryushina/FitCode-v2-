@@ -14,7 +14,7 @@ async def track_message(context: ContextTypes.DEFAULT_TYPE, message_id: int):
 
 async def handle_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки 'Поддержка'"""
-    # Очистка будет выполнена в основном модуле
+    await cleanup_previous_messages(update, context)
     
     text = """
 🆘 *Поддержка*
@@ -50,16 +50,17 @@ async def handle_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = await context.bot.send_message(
-        chat_id=update.effective_chat.chat_id,
+        chat_id=update.effective_chat.id,
         text=text,
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
-
+    
+    await track_message(context, message.message_id)
 
 async def handle_contact_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик прямой связи с поддержкой"""
-    # Очистка будет выполнена в основном модуле
+    await cleanup_previous_messages(update, context)
     
     text = """
 💬 *Незамедлительная поддержка*
@@ -87,16 +88,18 @@ async def handle_contact_support(update: Update, context: ContextTypes.DEFAULT_T
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = await context.bot.send_message(
-        chat_id=update.effective_chat.chat_id,
+        chat_id=update.effective_chat.id,
         text=text,
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+    
+    await track_message(context, message.message_id)
 
 
 async def handle_faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик FAQ"""
-    # Очистка будет выполнена в основном модуле
+    await cleanup_previous_messages(update, context)
     
     text = """
 📋 *Часто задаваемые вопросы*
@@ -128,16 +131,18 @@ async def handle_faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = await context.bot.send_message(
-        chat_id=update.effective_chat.chat_id,
+        chat_id=update.effective_chat.id,
         text=text,
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+    
+    await track_message(context, message.message_id)
 
 
 async def handle_ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик задавания вопроса"""
-    # Очистка будет выполнена в основном модуле
+    await cleanup_previous_messages(update, context)
     
     text = """
 ❓ *Задать вопрос*
@@ -168,8 +173,10 @@ async def handle_ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = await context.bot.send_message(
-        chat_id=update.effective_chat.chat_id,
+        chat_id=update.effective_chat.id,
         text=text,
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+    
+    await track_message(context, message.message_id)

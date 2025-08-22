@@ -481,16 +481,12 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
 		elif data == "menu_support":
-			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await handle_support(update, context)
 		elif data == "support":
-			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await handle_contact_support(update, context)
 		elif data == "faq":
-			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await handle_faq(update, context)
 		elif data == "ask_question":
-			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await handle_ask_question(update, context)
 		elif data == "main_menu":
 			await start_command(update, context)
