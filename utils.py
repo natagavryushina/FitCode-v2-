@@ -4,6 +4,7 @@ from datetime import time, datetime
 from typing import Callable
 
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardMarkup
 
 
 def setup_logging() -> None:
@@ -98,3 +99,46 @@ def format_weekly_schedule_message(plan) -> str:
         message += f"Тип: {day.workout_type}\n"
         message += f"Длительность: {int(getattr(day, 'duration_minutes', 0) or 0)} мин\n\n"
     return message
+
+
+# --------- Chat Manager (cleanup & immersive navigation) ---------
+
+class ChatManager:
+    def __init__(self):
+        self.user_messages: dict[int, list[int]] = {}
+
+    async def cleanup_previous_messages(self, user_id: int, bot):
+        if user_id in self.user_messages:
+            for msg_id in self.user_messages[user_id]:
+                try:
+                    await bot.delete_message(chat_id=user_id, message_id=msg_id)
+                except Exception as e:
+                    logging.warning(f"Не удалось удалить сообщение {msg_id}: {e}")
+            self.user_messages[user_id] = []
+
+    async def track_new_message(self, user_id: int, message_id: int):
+        if user_id not in self.user_messages:
+            self.user_messages[user_id] = []
+        self.user_messages[user_id].append(message_id)
+
+    async def send_clean_message(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        text: str,
+        reply_markup: InlineKeyboardMarkup | None = None,
+    ):
+        user_id = update.effective_user.id
+        await self.cleanup_previous_messages(user_id, context.bot)
+        message = await context.bot.send_message(
+            chat_id=user_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown',
+        )
+        await self.track_new_message(user_id, message.message_id)
+        return message
+
+
+# Singleton instance
+chat_manager = ChatManager()
