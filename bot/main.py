@@ -24,6 +24,18 @@ from services.planner import ensure_week_workouts, ensure_week_meals
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from services.reminder import setup_scheduler
 
+# Constants
+PROFILE_SEX = {"male", "female"}
+PROFILE_LEVEL = {"beginner", "intermediate", "advanced"}
+GOAL_CHOICES = [
+    "fat_loss", "muscle_gain", "strength", "endurance", 
+    "mobility", "rehabilitation", "weight_maintenance"
+]
+EQUIPMENT_CHOICES = [
+    "dumbbells", "barbell", "kettlebell", "resistance_bands", 
+    "pullup_bar", "bench", "cardio_machine", "bodyweight_only"
+]
+
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
 _hw_waiting: Dict[int, bool] = {}
@@ -511,6 +523,48 @@ async def _send_photo_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int, pho
 	except Exception as e:
 		logging.getLogger("ui").warning("send_photo failed: %s", e)
 		return False
+
+
+def _profile_kb() -> InlineKeyboardMarkup:
+	return InlineKeyboardMarkup([
+		[
+			InlineKeyboardButton(text="👤 Пол", callback_data="profile_sex"),
+			InlineKeyboardButton(text="🏋️ Уровень", callback_data="profile_level"),
+		],
+		[
+			InlineKeyboardButton(text="📏 Рост/Вес", callback_data="profile_hw"),
+			InlineKeyboardButton(text="🎯 Цели", callback_data="profile_goals"),
+		],
+		[
+			InlineKeyboardButton(text="🛠️ Инвентарь", callback_data="profile_eq"),
+		],
+		[
+			InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root"),
+		]
+	])
+
+
+def _toggle_list_kb(prefix: str, choices: List[str], selected: set) -> InlineKeyboardMarkup:
+	rows = []
+	row = []
+	for choice in choices:
+		# Convert choice to display name
+		display_name = choice.replace("_", " ").title()
+		if choice in selected:
+			display_name = f"✅ {display_name}"
+		else:
+			display_name = f"⬜ {display_name}"
+		
+		btn = InlineKeyboardButton(text=display_name, callback_data=f"{prefix}{choice}")
+		row.append(btn)
+		if len(row) == 2:
+			rows.append(row)
+			row = []
+	if row:
+		rows.append(row)
+	rows.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"{prefix}done")])
+	rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")])
+	return InlineKeyboardMarkup(rows)
 
 
 async def run() -> None:
