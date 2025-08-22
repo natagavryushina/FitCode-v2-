@@ -260,6 +260,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		await _send_text_big(context, update.effective_chat.id, format_big_message("Ошибка", "Формат: 180 75. Попробуй ещё раз."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 		return
+	
+	# Проверяем, ожидается ли вопрос от пользователя
+	if context.user_data.get('waiting_for_question', False):
+		from handlers.support_handler import handle_user_question
+		await handle_user_question(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
 	await _reply_with_llm(update, context, user_text, title="Ответ готов ✨")
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 

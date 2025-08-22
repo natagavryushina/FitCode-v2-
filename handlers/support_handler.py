@@ -144,30 +144,29 @@ async def handle_ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Обработчик задавания вопроса"""
     await cleanup_previous_messages(update, context)
     
+    # Устанавливаем состояние ожидания вопроса
+    context.user_data['waiting_for_question'] = True
+    
     text = """
 ❓ *Задать вопрос*
 
-Для получения персональной помощи по вашему вопросу:
+Напишите ваш вопрос в следующем сообщении:
 
-1️⃣ *Напишите напрямую:* @FitCodesupport
-2️⃣ *Укажите в сообщении:*
-   • Ваш логин в боте
-   • Суть вопроса/проблемы
-   • Что уже пробовали сделать
+📝 *Что можно спросить:*
+• Технические проблемы с ботом
+• Вопросы по тренировкам
+• Проблемы с питанием
+• Предложения по улучшению
+• Любые другие вопросы
 
-3️⃣ *Приложите скриншоты* (если есть)
+💡 *Совет:* Опишите проблему подробно, чтобы мы могли помочь быстрее.
 
-⏱ *Время ответа:*
-• Простые вопросы: до 1 часа
-• Сложные вопросы: до 24 часов
-
-💡 *Совет:* Сначала проверьте FAQ - возможно, там уже есть ответ на ваш вопрос.
+⏱ *Время ответа:* до 24 часов
 """
     
     keyboard = [
-        [InlineKeyboardButton("💬 Написать @FitCodesupport", url="https://t.me/FitCodesupport")],
-        [InlineKeyboardButton("📋 Посмотреть FAQ", callback_data="faq")],
-        [InlineKeyboardButton("↩️ Назад к поддержке", callback_data="support")]
+        [InlineKeyboardButton("❌ Отменить", callback_data="support")],
+        [InlineKeyboardButton("📋 Посмотреть FAQ", callback_data="faq")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -180,3 +179,56 @@ async def handle_ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     
     await track_message(context, message.message_id)
+
+
+async def handle_user_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик текстовых вопросов пользователя"""
+    if context.user_data.get('waiting_for_question', False):
+        # Сбрасываем состояние ожидания
+        context.user_data['waiting_for_question'] = False
+        
+        # Сохраняем вопрос
+        user_id = update.effective_user.id
+        question = update.message.text
+        
+        await save_user_question(user_id, question)
+        
+        # Отправляем подтверждение
+        text = """
+✅ *Вопрос получен!*
+
+Спасибо за обращение! Наш менеджер поддержки свяжется с вами в ближайшее время через @FitCodesupport
+
+Для ускорения процесса вы можете написать напрямую: @FitCodesupport
+"""
+        
+        keyboard = [
+            [InlineKeyboardButton("💬 Написать @FitCodesupport", url="https://t.me/FitCodesupport")],
+            [InlineKeyboardButton("↩️ Назад в меню", callback_data="main_menu")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        message = await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+        await track_message(context, message.message_id)
+        
+        # Уведомляем менеджера поддержки
+        await notify_support_manager(user_id, question)
+
+
+async def save_user_question(user_id: int, question: str):
+    """Сохранение вопроса пользователя в базу данных"""
+    # TODO: Реализовать сохранение в базу данных
+    pass
+
+
+async def notify_support_manager(user_id: int, question: str):
+    """Уведомление менеджера поддержки о новом вопросе"""
+    # TODO: Реализовать уведомление менеджера
+    pass
