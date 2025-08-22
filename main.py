@@ -56,6 +56,7 @@ def main() -> None:
 
     # Core commands
     application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(CommandHandler("start", menu_command))
 
     # Conversation / FSM onboarding
     application.add_handler(get_conversation_handler())

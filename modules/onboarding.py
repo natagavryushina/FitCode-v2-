@@ -9,6 +9,7 @@ from telegram.ext import (
     ConversationHandler,
     ContextTypes,
     filters,
+    CallbackQueryHandler,
 )
 
 from database import get_or_create_user, update_user_profile
@@ -23,6 +24,14 @@ async def start_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Какая у тебя цель? (похудение/набор/поддержание/мероприятие)", reply_markup=ReplyKeyboardRemove()
     )
+    return GOAL
+
+
+async def start_onboarding_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await get_or_create_user(update.effective_user.id)
+    q = update.callback_query
+    await q.answer()
+    await q.edit_message_text("Какая у тебя цель? (похудение/набор/поддержание/мероприятие)")
     return GOAL
 
 
@@ -143,7 +152,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def get_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
-        entry_points=[CommandHandler("start", start_onboarding)],
+        entry_points=[
+            CommandHandler("setup", start_onboarding),
+            CallbackQueryHandler(start_onboarding_cb, pattern=r"^menu:goals$")
+        ],
         states={
             GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_goal)],
             LEVEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_level)],
