@@ -30,6 +30,7 @@ from bot.handlers.personal_cabinet_handler import handle_personal_cabinet
 from bot.handlers.workouts_handler import handle_workouts
 from bot.handlers.weekly_menu_handler import handle_weekly_menu
 from bot.handlers.photo_nutrition_handler import handle_photo_nutrition, handle_food_photo
+from bot.handlers.bonuses_handler import handle_bonuses
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -565,12 +566,91 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Поддержка", "Напишите свой вопрос текстом или голосом. Мы ответим в ближайшее время."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_support")]]))
 		elif data == "menu_loyalty":
+			await handle_bonuses(update, context)
+		elif data == "rewards_shop":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Магазин наград", "Скоро откроем магазин наград за баллы."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+		elif data == "my_achievements":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Мои достижения", "Скоро добавим детальную страницу достижений."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+		elif data == "bonus_history":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("История начислений", "История начисления баллов скоро будет доступна."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+		elif data == "invite_friend":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Пригласить друга", "Скоро добавим систему приглашений и реферальных бонусов."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+		elif data == "profile_sex":
+			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="Муж", callback_data="profile_sex_set_male"), InlineKeyboardButton(text="Жен", callback_data="profile_sex_set_female")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Пол", "Выбери пол"), kb)
+		elif data.startswith("profile_sex_set_"):
+			sex = data.split("_")[-1]
+			if sex not in PROFILE_SEX:
+				await help_command(update, context)
+				return
 			with session_scope() as s:
 				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-				points = repo.get_loyalty_points(s, user.id)
+				repo.update_user_fields(s, user, sex=sex)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", f"Пол: {sex}"), _profile_kb())
+		elif data == "profile_level":
+			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text=lbl, callback_data=f"profile_level_set_{key}") for lbl, key in [("Новичок","beginner"),("Средний","intermediate"),("Продвинутый","advanced")]], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
 			await _cleanup_chat_messages(context, update.effective_chat.id)
-			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="🏆 Использовать баллы скоро", callback_data="menu_root")],[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]])
-			await _send_text_big(context, update.effective_chat.id, format_big_message("Бонусы", f"Твои баллы: {points} 🎉"), kb)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Уровень", "Выбери тренировочный уровень"), kb)
+		elif data.startswith("profile_level_set_"):
+			lvl = data.split("_")[-1]
+			if lvl not in PROFILE_LEVEL:
+				await help_command(update, context)
+				return
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+				repo.update_user_fields(s, user, level=lvl)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", f"Уровень: {lvl}"), _profile_kb())
+		elif data == "profile_hw":
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			_hw_waiting[update.effective_chat.id] = True
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Рост/Вес", "Отправь текстом в формате: 180 75"), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
+		elif data == "profile_goals":
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+				prefs = json.loads(user.preferences_json or "{}")
+				selected = set(prefs.get("goals", []))
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Цели", "Выбери одну или несколько целей"), _toggle_list_kb("goals_", GOAL_CHOICES, selected))
+		elif data.startswith("goals_"):
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+				prefs = json.loads(user.preferences_json or "{}")
+				selected = set(prefs.get("goals", []))
+				val = data.split("_")[-1]
+				if val == "done":
+					repo.set_user_list_pref(s, user, "goals", list(selected))
+					await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", "Цели сохранены"), _profile_kb())
+					return
+				if val in GOAL_CHOICES:
+					if val in selected:
+						selected.remove(val)
+					else:
+						selected.add(val)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Цели", "Выбери одну или несколько целей"), _toggle_list_kb("goals_", GOAL_CHOICES, selected))
+		elif data == "profile_eq":
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+				prefs = json.loads(user.preferences_json or "{}")
+				selected = set(prefs.get("equipment", []))
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Инвентарь", "Отметь доступный инвентарь"), _toggle_list_kb("eq_", EQUIPMENT_CHOICES, selected))
+		elif data.startswith("eq_"):
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+				prefs = json.loads(user.preferences_json or "{}")
+				selected = set(prefs.get("equipment", []))
+				val = data.split("_")[-1]
+				if val == "done":
+					repo.set_user_list_pref(s, user, "equipment", list(selected))
+					await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", "Инвентарь сохранён"), _profile_kb())
+					return
+				if val in EQUIPMENT_CHOICES:
+					if val in selected:
+						selected.remove(val)
+					else:
+						selected.add(val)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Инвентарь", "Отметь доступный инвентарь"), _toggle_list_kb("eq_", EQUIPMENT_CHOICES, selected))
 		elif data == "menu_root":
 			await start_command(update, context)
 		else:
