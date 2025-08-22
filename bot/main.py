@@ -25,7 +25,12 @@ from services.planner import ensure_week_workouts, ensure_week_meals
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from services.reminder import setup_scheduler
 from handlers.support_handler import handle_support, handle_contact_support, handle_faq, handle_ask_question
-from handlers.ready_programs_handler import handle_ready_programs, view_program_details, view_program_workouts, start_program_confirmation, confirm_start_program, show_my_progress, show_current_workout, complete_current_workout, handle_active_program_warning, ReadyProgramStates
+from handlers.program_handlers import (
+    handle_training_programs, show_program_details, show_programs_filter, 
+    show_filtered_programs, show_my_programs, view_program_plan, 
+    start_program_confirmation, confirm_start_program, show_current_workout, 
+    show_program_progress, complete_program_workout_handler, ProgramStates
+)
 
 # Constants
 PROFILE_SEX = {"male", "female"}
@@ -582,23 +587,29 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			from handlers.workout_logging_handlers import handle_detailed_stats
 			await handle_detailed_stats(update, context)
 		elif data == "ready_programs":
-			await handle_ready_programs(update, context)
-		elif data.startswith("view_program:"):
-			await view_program_details(update, context)
-		elif data.startswith("view_workouts:"):
-			await view_program_workouts(update, context)
-		elif data.startswith("start_program:"):
+			await handle_training_programs(update, context)
+		elif data == "training_programs":
+			await handle_training_programs(update, context)
+		elif data.startswith("program_"):
+			await show_program_details(update, context)
+		elif data == "programs_filter":
+			await show_programs_filter(update, context)
+		elif data.startswith("filter_"):
+			await show_filtered_programs(update, context)
+		elif data == "my_programs":
+			await show_my_programs(update, context)
+		elif data.startswith("view_program_plan_"):
+			await view_program_plan(update, context)
+		elif data.startswith("start_program_"):
 			await start_program_confirmation(update, context)
-		elif data.startswith("confirm_start:"):
+		elif data.startswith("confirm_start_"):
 			await confirm_start_program(update, context)
 		elif data.startswith("my_progress:"):
-			await show_my_progress(update, context)
+			await show_program_progress(update, context)
 		elif data.startswith("current_workout:"):
 			await show_current_workout(update, context)
 		elif data.startswith("complete_workout:"):
-			await complete_current_workout(update, context)
-		elif data == "active_program_warning":
-			await handle_active_program_warning(update, context)
+			await complete_program_workout_handler(update, context)
 		elif data == "workouts":
 			# Показываем план тренировок на неделю
 			user = None
@@ -767,24 +778,28 @@ async def run() -> None:
 
 	app.add_handler(CommandHandler("start", start_command))
 	app.add_handler(CommandHandler("help", help_command))
-	app.add_handler(CallbackQueryHandler(handle_menu_callback))
 	app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 	app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-
-	# Настройка обработчиков для тренировок
-	setup_workout_logging_handlers(app)
-
-	logger.info("Bot is starting (polling)...")
+	app.add_handler(CallbackQueryHandler(handle_menu_callback))
+	
+	# Настройка обработчиков для внесения тренировок
+	# setup_workout_logging_handlers(app)  # Временно отключено, так как обработчики интегрированы в handle_menu_callback
+	
+	if settings.feature_reminder:
+		scheduler = AsyncIOScheduler()
+		setup_scheduler(scheduler, app.bot, settings.reminder_hour)
+		scheduler.start()
+	
+	logger.info("Bot started, polling for updates...")
 	await app.initialize()
 	await app.start()
+	await app.updater.start_polling()
+	
 	try:
-		await app.updater.start_polling()
-		await asyncio.Event().wait()
+		await asyncio.Event().wait()  # Ждем бесконечно
 	finally:
 		await app.stop()
 		await app.shutdown()
-		if scheduler:
-			scheduler.shutdown(wait=False)
 
 
 if __name__ == "__main__":
