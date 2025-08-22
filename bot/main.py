@@ -136,8 +136,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 	else:
 		img = get_image_url("welcome")
 		if img:
-			msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
+			sent = await _send_photo_safe(context, update.effective_chat.id, img, welcome, _main_menu_kb())
+			if not sent:
+				msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
+				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
 		else:
 			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
