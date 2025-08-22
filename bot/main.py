@@ -25,6 +25,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from services.reminder import setup_scheduler
 from sqlalchemy import select, and_
 
+from bot.handlers.menu_handlers import handle_main_menu
+
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
 _hw_waiting: Dict[int, bool] = {}
@@ -199,44 +201,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 			seen = repo.get_user_pref(s, user, "start_seen", False)
 			if not seen:
 				repo.set_user_pref(s, user, "start_seen", True)
-	await _cleanup_chat_messages(context, update.effective_chat.id)
-	body = (
-		"— Помогу с тренировками под цель и уровень 💪\n"
-		"— Подберу питание и КБЖУ 🥗\n"
-		"— Отвечу на вопросы коротко и по делу ✨\n\n"
-		"Отправь свой запрос или цели — и я подберу лучшие программы тренировок под твой запрос."
-	)
-	welcome = format_big_message("Привет! Я твой тренер и нутрициолог", body)
-	if settings.bot_logo_url:
-		try:
-			msg = await context.bot.send_photo(
-				chat_id=update.effective_chat.id,
-				photo=settings.bot_logo_url or get_image_url("welcome"),
-				caption=welcome,
-				parse_mode=ParseMode.HTML,
-				reply_markup=_main_menu_kb(),
-			)
-			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
-		except Exception:
-			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
-	else:
-		img = get_image_url("welcome")
-		if img:
-			sent = await _send_photo_safe(context, update.effective_chat.id, img, welcome, _main_menu_kb())
-			if not sent:
-				msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-				_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
-		else:
-			msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
-			_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
-
+	# Show main menu via new handler
+	await handle_main_menu(update, context)
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-	await start_command(update, context)
+	await handle_main_menu(update, context)
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
