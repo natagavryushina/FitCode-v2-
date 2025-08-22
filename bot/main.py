@@ -169,7 +169,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 			seen = repo.get_user_pref(s, user, "start_seen", False)
 			if not seen:
 				repo.set_user_pref(s, user, "start_seen", True)
-
 	await _cleanup_chat_messages(context, update.effective_chat.id)
 	body = (
 		"— Помогу с тренировками под цель и уровень 💪\n"
@@ -204,6 +203,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 	if update.message:
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+
+
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	await start_command(update, context)
+
+
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	await _cleanup_chat_messages(context, update.effective_chat.id)
+	await _send_text_big(context, update.effective_chat.id, format_big_message("Неизвестная команда", "Откройте меню и выберите раздел."), _main_menu_kb())
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -347,9 +355,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 	query = update.callback_query
 	if not query:
 		return
-	await query.answer()
 	try:
-		data = query.data or ""
+		data = (query.data or "").strip()
+		await query.answer(text=None, show_alert=False)
 		_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
 		if data == "menu_profile":
 			# Show profile menu
@@ -647,11 +655,13 @@ async def run() -> None:
 		setup_scheduler(scheduler, app.bot, settings.reminder_hour)
 
 	app.add_handler(CommandHandler("start", start_command))
+	app.add_handler(CommandHandler("menu", menu_command))
 	app.add_handler(CommandHandler("help", help_command))
 	app.add_handler(CommandHandler("health", health_command))
 	app.add_handler(CallbackQueryHandler(handle_menu_callback))
 	app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 	app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+	app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 	app.add_error_handler(error_handler)
 
 	logger.info("Bot is starting (polling)...")
