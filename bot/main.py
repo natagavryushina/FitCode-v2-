@@ -29,6 +29,7 @@ from bot.handlers.menu_handlers import handle_main_menu
 from bot.handlers.personal_cabinet_handler import handle_personal_cabinet
 from bot.handlers.workouts_handler import handle_workouts
 from bot.handlers.weekly_menu_handler import handle_weekly_menu
+from bot.handlers.photo_nutrition_handler import handle_photo_nutrition, handle_food_photo
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -429,6 +430,18 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Воскресенье", "Детали меню на воскресенье скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
 		elif data == "generate_new_menu":
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Генерация", "Скоро добавим генерацию нового меню."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "menu_ai_kbzhu_photo":
+			await handle_photo_nutrition(update, context)
+		elif data == "send_photo":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Отправка фото", "Отправьте фото блюда для анализа КБЖУ."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_ai_kbzhu_photo")]]))
+		elif data == "how_it_works":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Как это работает", "AI анализирует фото блюда и определяет примерный состав и калорийность."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_ai_kbzhu_photo")]]))
+		elif data == "recent_analyses":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Последние анализы", "История анализов скоро будет доступна."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_ai_kbzhu_photo")]]))
+		elif data == "photo_nutrition":
+			await handle_photo_nutrition(update, context)
+		elif data.startswith("add_to_diary:"):
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Добавлено", "Блюдо добавлено в дневник питания."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]]))
 		elif data == "profile_sex":
 			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="Муж", callback_data="profile_sex_set_male"), InlineKeyboardButton(text="Жен", callback_data="profile_sex_set_female")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
 			await _cleanup_chat_messages(context, update.effective_chat.id)
