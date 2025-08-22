@@ -28,6 +28,7 @@ from sqlalchemy import select, and_
 from bot.handlers.menu_handlers import handle_main_menu
 from bot.handlers.personal_cabinet_handler import handle_personal_cabinet
 from bot.handlers.workouts_handler import handle_workouts
+from bot.handlers.weekly_menu_handler import handle_weekly_menu
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -410,6 +411,24 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Отметить", "Выберите день в разделе \"📅 Неделя\" и нажмите \"✅ Выполнено\"."), InlineKeyboardMarkup([[InlineKeyboardButton(text="📅 Неделя", callback_data="workouts_weekly_detail")],[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
 		elif data == "workout_history":
 			await _send_text_big(context, update.effective_chat.id, format_big_message("История", "Скоро добавим историю выполненных тренировок."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
+		elif data == "menu_week":
+			await handle_weekly_menu(update, context)
+		elif data == "menu_monday":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Понедельник", "Детали меню на понедельник скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "menu_tuesday":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Вторник", "Детали меню на вторник скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "menu_wednesday":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Среда", "Детали меню на среду скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "menu_thursday":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Четверг", "Детали меню на четверг скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "menu_friday":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Пятница", "Детали меню на пятницу скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "menu_saturday":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Суббота", "Детали меню на субботу скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "menu_sunday":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Воскресенье", "Детали меню на воскресенье скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+		elif data == "generate_new_menu":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Генерация", "Скоро добавим генерацию нового меню."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
 		elif data == "profile_sex":
 			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="Муж", callback_data="profile_sex_set_male"), InlineKeyboardButton(text="Жен", callback_data="profile_sex_set_female")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
 			await _cleanup_chat_messages(context, update.effective_chat.id)
