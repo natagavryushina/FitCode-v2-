@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 from datetime import date
 
 import matplotlib
@@ -8,12 +9,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from telegram import Update, InputFile
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 from database import get_sessionmaker, ProgressEntry, get_or_create_user
 
 
 PROGRESS_CB_PREFIX = "menu:progress"
+PHOTOS_DIR = os.path.join(os.getcwd(), "data", "photos")
 
 
 async def add_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -31,6 +33,23 @@ async def add_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.add(entry)
         await session.commit()
     await update.message.reply_text("Записал прогресс. Используй /progress_plot для графика.")
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.photo:
+        return
+    os.makedirs(PHOTOS_DIR, exist_ok=True)
+    photo = update.message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    path = os.path.join(PHOTOS_DIR, f"{update.effective_user.id}_{date.today().isoformat()}.jpg")
+    await file.download_to_drive(path)
+    user = await get_or_create_user(update.effective_user.id)
+    Session = get_sessionmaker()
+    async with Session() as session:
+        entry = ProgressEntry(user_id=user.id, entry_date=date.today(), photo_path=path)
+        session.add(entry)
+        await session.commit()
+    await update.message.reply_text("Фото сохранено к сегодняшней записи.")
 
 
 async def progress_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -64,10 +83,11 @@ async def progress_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def progress_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Раздел прогресс: /add_progress <вес> для записи, /progress_plot для графика.")
+    await query.edit_message_text("Раздел прогресс: /add_progress <вес>, пришли фото, /progress_plot для графика.")
 
 
 def register_progress_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("add_progress", add_progress))
     app.add_handler(CommandHandler("progress_plot", progress_plot))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(progress_menu_handler, pattern=f"^{PROGRESS_CB_PREFIX}$"))

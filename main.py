@@ -10,9 +10,13 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 from database import init_db
+from database import log_message
+from ai_agents import add_memory
 from keyboards import build_main_menu
 from modules.onboarding import get_conversation_handler
 from modules.training import register_training_handlers
@@ -20,7 +24,7 @@ from modules.nutrition import register_nutrition_handlers
 from modules.progress import register_progress_handlers
 from modules.videos import register_video_handlers
 from modules.analysis import register_analysis_handlers
-from utils import setup_logging, schedule_reminders
+from utils import setup_logging, schedule_reminders, register_reminder_commands
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -57,6 +61,14 @@ def main() -> None:
     # Core commands
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("start", menu_command))
+    
+    # Global text logger (skip commands)
+    async def _log_any(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.message and update.message.text:
+            text = update.message.text
+            await log_message(update.effective_user.id, "user", text)
+            add_memory(update.effective_user.id, [text], metadatas=[{"type": "user_msg"}])
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _log_any))
 
     # Conversation / FSM onboarding
     application.add_handler(get_conversation_handler())
@@ -67,6 +79,7 @@ def main() -> None:
     register_progress_handlers(application)
     register_video_handlers(application)
     register_analysis_handlers(application)
+    register_reminder_commands(application)
 
     # Callback queries for menu are handled inside modules via shared prefix routing
 

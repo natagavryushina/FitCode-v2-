@@ -172,3 +172,39 @@ async def update_user_profile(telegram_id: int, **fields: Any) -> User:
         await session.commit()
         await session.refresh(user)
         return user
+
+
+async def log_message(telegram_id: int, role: str, content: str) -> None:
+    Session = get_sessionmaker()
+    async with Session() as session:
+        res = await session.execute(select(User).where(User.telegram_id == telegram_id))
+        user = res.scalar_one_or_none()
+        if not user:
+            user = User(telegram_id=telegram_id)
+            session.add(user)
+            await session.flush()
+        entry = MessageLog(user_id=user.id, role=role, content=content)
+        session.add(entry)
+        await session.commit()
+
+
+async def save_weekly_workout_plan(telegram_id: int, week_start: date, plan: Dict[str, Any]) -> WorkoutPlan:
+    Session = get_sessionmaker()
+    async with Session() as session:
+        res = await session.execute(select(User).where(User.telegram_id == telegram_id))
+        user = res.scalar_one()
+        # upsert by week_start
+        res2 = await session.execute(
+            select(WorkoutPlan).where(WorkoutPlan.user_id == user.id, WorkoutPlan.week_start == week_start)
+        )
+        existing = res2.scalar_one_or_none()
+        if existing:
+            existing.plan = plan
+            await session.commit()
+            await session.refresh(existing)
+            return existing
+        wp = WorkoutPlan(user_id=user.id, week_start=week_start, plan=plan)
+        session.add(wp)
+        await session.commit()
+        await session.refresh(wp)
+        return wp

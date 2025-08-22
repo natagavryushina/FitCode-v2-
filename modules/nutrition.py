@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -48,12 +48,30 @@ async def daily_meal_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+async def recipe_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = await get_or_create_user(update.effective_user.id)
+    query = " ".join((update.message.text or "").split()[1:]) or (user.diet_pref or "здоровый рецепт")
+    mem = query_memory(user.telegram_id, query, n=5)
+    # Simple stubbed recipes
+    base: List[str] = [
+        "Омлет с овощами и зеленью",
+        "Курица с гречкой и салатом",
+        "Лосось с брокколи на пару",
+        "Тофу-боул с киноа и овощами",
+    ]
+    lines = [f"🔎 Рецепты по запросу: {query}"]
+    for i, r in enumerate(base[:5], 1):
+        lines.append(f"{i}. {r}")
+    await update.message.reply_text("\n".join(lines))
+
+
 async def nutrition_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Раздел питание: используйте /meal_plan для плана на день.")
+    await query.edit_message_text("Раздел питание: /meal_plan для плана на день, /recipes <запрос> для поиска.")
 
 
 def register_nutrition_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("meal_plan", daily_meal_plan))
+    app.add_handler(CommandHandler("recipes", recipe_search))
     app.add_handler(CallbackQueryHandler(nutrition_menu_handler, pattern=f"^{NUTRITION_CB_PREFIX}$"))
