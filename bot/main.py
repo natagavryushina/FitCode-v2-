@@ -40,6 +40,36 @@ def format_big_message(title: str, body: str) -> str:
 	return f"<b>{title}</b>\n\n{body}"
 
 
+def _simple_reply_for_text(user_text: str) -> str:
+	text = (user_text or "").lower()
+	if any(k in text for k in ["похуд", "сброс", "жир"]):
+		return (
+			"Цель: похудение.\n"
+			"— Тренировки: 3–4× в неделю, 30–45 мин: круговые, ходьба, ЛФК.\n"
+			"— Питание: дефицит ~10–15%, белок 1.6–2 г/кг, вода 30 мл/кг.\n"
+			"— Сон/стресс: 7–8 ч сна, шаги 7–10 тыс.\n"
+		)
+	if any(k in text for k in ["набор", "масса", "мышц"]):
+		return (
+			"Цель: набор массы.\n"
+			"— Тренировки: 3× full-body или 4× сплит, прогрессия нагрузок.\n"
+			"— Питание: профицит ~10%, белок 1.8–2.2 г/кг, углеводы до тренировки.\n"
+			"— Восстановление: сон 8 ч, прогулки.\n"
+		)
+	if any(k in text for k in ["вынослив", "кардио", "бег"]):
+		return (
+			"Цель: выносливость.\n"
+			"— Тренировки: 3× в неделю кардио (Зона 2) 30–45 мин + 1× интервалы.\n"
+			"— Силовая: 2× базовые упражнения для поддержки мышц.\n"
+			"— Питание/вода: углеводы до/после, вода 30 мл/кг.\n"
+		)
+	return (
+		"Я принял запрос. Предлагаю: 3× тренировки/нед, 2× ходьба 30–40 мин, \n"
+		"питание сбалансированное (белок 1.6–2 г/кг, овощи, вода 30 мл/кг).\n"
+		"Если подскажешь цель (похудение/масса/выносливость) — уточню план."
+	)
+
+
 async def on_startup() -> None:
 	if settings.feature_db:
 		Base.metadata.create_all(bind=engine)
@@ -242,7 +272,7 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 	await _cleanup_chat_messages(context, update.effective_chat.id)
 	await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 	if not settings.feature_llm:
-		body = fallback_body or "LLM отключён. Включите FEATURE_LLM=1."
+		body = fallback_body or _simple_reply_for_text(user_text)
 		msg_text = format_big_message(title, html.escape(body))
 		msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=msg_text, parse_mode=ParseMode.HTML, reply_markup=_main_menu_kb())
 		_ephemeral_messages.setdefault(update.effective_chat.id, []).append(msg.message_id)
@@ -276,7 +306,7 @@ async def _reply_with_llm(update: Update, context: ContextTypes.DEFAULT_TYPE, us
 		await _send_text_big(context, update.effective_chat.id, big, _main_menu_kb())
 	except (OpenRouterError, Exception) as e:
 		logging.getLogger("llm").exception("LLM error: %s", e)
-		body = fallback_body or "LLM временно недоступен. Попробуй позже 🙏"
+		body = fallback_body or _simple_reply_for_text(user_text)
 		big = format_big_message(title, html.escape(body))
 		if image_topic:
 			img = get_image_url(image_topic)

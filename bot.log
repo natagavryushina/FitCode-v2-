@@ -1,14 +1,6 @@
 nohup: ignoring input
-2025-08-22 10:18:04 | INFO | apscheduler.scheduler | Scheduler started
-2025-08-22 10:18:04 | INFO | apscheduler.scheduler | Added job "send_daily_reminders" to job store "default"
-2025-08-22 10:18:04 | INFO | bot | Bot is starting (polling)...
-2025-08-22 10:18:05 | INFO | apscheduler.scheduler | Scheduler started
-2025-08-22 10:18:05 | INFO | telegram.ext.Application | Application started
-2025-08-22 10:25:31 | ERROR | llm | LLM error: Отсутствует OPENROUTER_API_KEY
-Traceback (most recent call last):
-  File "/workspace/bot/main.py", line 251, in _reply_with_llm
-    reply_text, usage = await chat_completion(categories, user_text)
-                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/workspace/services/openrouter_client.py", line 25, in chat_completion
-    raise OpenRouterError("Отсутствует OPENROUTER_API_KEY")
-services.openrouter_client.OpenRouterError: Отсутствует OPENROUTER_API_KEY
+2025-08-22 10:26:39 | INFO | apscheduler.scheduler | Scheduler started
+2025-08-22 10:26:39 | INFO | apscheduler.scheduler | Added job "send_daily_reminders" to job store "default"
+2025-08-22 10:26:39 | INFO | bot | Bot is starting (polling)...
+2025-08-22 10:26:39 | INFO | apscheduler.scheduler | Scheduler started
+2025-08-22 10:26:39 | INFO | telegram.ext.Application | Application started
