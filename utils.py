@@ -142,3 +142,32 @@ class ChatManager:
 
 # Singleton instance
 chat_manager = ChatManager()
+
+
+# --------- Navigation Manager (menu stack) ---------
+
+class NavigationManager:
+    def __init__(self):
+        self.user_navigation: dict[int, list[str]] = {}
+
+    def push_menu(self, user_id: int, menu_name: str):
+        if user_id not in self.user_navigation:
+            self.user_navigation[user_id] = []
+        self.user_navigation[user_id].append(menu_name)
+
+    def pop_menu(self, user_id: int) -> str:
+        if user_id in self.user_navigation and self.user_navigation[user_id]:
+            return self.user_navigation[user_id].pop()
+        return "main_menu"
+
+    def get_current_menu(self, user_id: int) -> str:
+        if user_id in self.user_navigation and self.user_navigation[user_id]:
+            return self.user_navigation[user_id][-1]
+        return "main_menu"
+
+    def clear_navigation(self, user_id: int):
+        if user_id in self.user_navigation:
+            self.user_navigation[user_id] = []
+
+
+navigation_manager = NavigationManager()
