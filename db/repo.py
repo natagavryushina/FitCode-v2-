@@ -5,7 +5,7 @@ import json
 from datetime import date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
-from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount, UserWorkoutPlan, UserWorkoutDay, MealPlan, MealDay, WorkoutCompletion
+from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount, UserWorkoutPlan, UserWorkoutDay, MealPlan, MealDay, WorkoutCompletion, CompletedWorkout, CompletedExercise
 
 
 def get_or_create_user(session: Session, tg_user_id: str, username: str | None, first_name: str | None, last_name: str | None) -> User:
@@ -182,3 +182,103 @@ def set_user_list_pref(session: Session, user: User, key: str, values: list[str]
 	user.preferences_json = json.dumps(prefs, ensure_ascii=False)
 	session.add(user)
 	session.flush()
+
+
+# Новые функции для работы с выполненными тренировками
+def create_completed_workout(session: Session, user_id: int, plan_id: int | None, workout_type: str, duration: int, notes: str | None = None) -> 'CompletedWorkout':
+	"""Создание новой выполненной тренировки"""
+	
+	workout = CompletedWorkout(
+		user_id=user_id,
+		plan_id=plan_id,
+		workout_type=workout_type,
+		duration=duration,
+		notes=notes
+	)
+	session.add(workout)
+	session.flush()
+	return workout
+
+
+def add_completed_exercise(session: Session, workout_id: int, exercise_name: str, sets: int, reps: int, weight: float | None = None, rpe: int | None = None, notes: str | None = None) -> 'CompletedExercise':
+	"""Добавление выполненного упражнения к тренировке"""
+	
+	exercise = CompletedExercise(
+		workout_id=workout_id,
+		exercise_name=exercise_name,
+		sets=sets,
+		reps=reps,
+		weight=weight,
+		rpe=rpe,
+		notes=notes
+	)
+	session.add(exercise)
+	session.flush()
+	return exercise
+
+
+def update_workout_volume(session: Session, workout_id: int) -> None:
+	"""Обновление общего объема тренировки на основе упражнений"""
+	
+	workout = session.get(CompletedWorkout, workout_id)
+	if not workout:
+		return
+	
+	# Вычисляем общий объем
+	total_volume = 0
+	exercises = session.query(CompletedExercise).filter_by(workout_id=workout_id).all()
+	
+	for exercise in exercises:
+		if exercise.weight and exercise.sets and exercise.reps:
+			total_volume += exercise.weight * exercise.sets * exercise.reps
+	
+	workout.total_volume = total_volume
+	session.add(workout)
+	session.flush()
+
+
+def get_user_workout_history(session: Session, user_id: int, limit: int = 10) -> list['CompletedWorkout']:
+	"""Получение истории тренировок пользователя"""
+	
+	return session.query(CompletedWorkout).filter_by(user_id=user_id).order_by(CompletedWorkout.workout_date.desc()).limit(limit).all()
+
+
+def get_workout_exercises(session: Session, workout_id: int) -> list['CompletedExercise']:
+	"""Получение всех упражнений для конкретной тренировки"""
+	
+	return session.query(CompletedExercise).filter_by(workout_id=workout_id).order_by(CompletedExercise.created_at).all()
+
+
+def get_user_exercise_stats(session: Session, user_id: int, exercise_name: str, days: int = 30) -> list[tuple]:
+	"""Получение статистики по конкретному упражнению за последние N дней"""
+	from datetime import datetime, timedelta
+	
+	# Вычисляем дату начала периода
+	start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+	
+	# Получаем все тренировки пользователя за период
+	workouts = session.query(CompletedWorkout).filter(
+		CompletedWorkout.user_id == user_id,
+		CompletedWorkout.workout_date >= start_date
+	).all()
+	
+	workout_ids = [w.id for w in workouts]
+	
+	# Получаем упражнения
+	exercises = session.query(CompletedExercise).filter(
+		CompletedExercise.workout_id.in_(workout_ids),
+		CompletedExercise.exercise_name == exercise_name
+	).all()
+	
+	# Возвращаем данные для анализа прогресса
+	stats = []
+	for exercise in exercises:
+		stats.append((
+			exercise.workout.workout_date,
+			exercise.sets,
+			exercise.reps,
+			exercise.weight,
+			exercise.rpe
+		))
+	
+	return stats

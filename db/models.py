@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, CheckConstraint, UniqueConstraint, Float
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -175,4 +175,47 @@ class WorkoutCompletion(Base):
 
 	__table_args__ = (
 		UniqueConstraint("user_id", "plan_id", "day_index", name="uq_workout_completion_unique"),
+	)
+
+
+class CompletedWorkout(Base):
+	__tablename__ = 'completed_workouts'
+	
+	id = Column(Integer, primary_key=True)
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+	plan_id = Column(Integer, ForeignKey('user_workout_plans.id'), nullable=True)  # может быть null для свободных тренировок
+	workout_date = Column(String, default=lambda: datetime.utcnow().isoformat())
+	workout_type = Column(String)  # сила, кардио, выносливость, мобилити и т.д.
+	duration = Column(Integer)  # длительность в минутах
+	total_volume = Column(Float)  # общий объем (вес × повторения × подходы)
+	rating = Column(Integer)  # оценка тренировки (1-5)
+	notes = Column(Text)  # общие заметки
+	created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+	
+	# Связи
+	exercises = relationship("CompletedExercise", back_populates="workout", cascade="all, delete-orphan")
+	user = relationship("User")
+
+
+class CompletedExercise(Base):
+	__tablename__ = 'completed_exercises'
+	
+	id = Column(Integer, primary_key=True)
+	workout_id = Column(Integer, ForeignKey('completed_workouts.id'), nullable=False)
+	exercise_name = Column(String, nullable=False)
+	sets = Column(Integer)  # количество подходов
+	reps = Column(Integer)  # количество повторений
+	weight = Column(Float)  # вес в кг
+	rpe = Column(Integer)  # субъективная сложность (1-10)
+	notes = Column(Text)  # заметки о технике
+	created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+	
+	# Связи
+	workout = relationship("CompletedWorkout", back_populates="exercises")
+	
+	__table_args__ = (
+		CheckConstraint("rpe >= 1 AND rpe <= 10", name="rpe_range_check"),
+		CheckConstraint("sets > 0", name="sets_positive_check"),
+		CheckConstraint("reps > 0", name="reps_positive_check"),
+		CheckConstraint("weight >= 0", name="weight_non_negative_check"),
 	)
