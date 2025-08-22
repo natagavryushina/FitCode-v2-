@@ -43,3 +43,17 @@ def workout_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("↩️ Назад", callback_data='main_menu')]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    return build_main_menu()
+
+
+def nutrition_menu_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton("🍽 План на день", callback_data='meal_plan')],
+        [InlineKeyboardButton("🔎 Рецепты", callback_data='recipes')],
+        [InlineKeyboardButton("🛒 Список покупок", callback_data='grocery_list')],
+        [InlineKeyboardButton("↩️ Назад", callback_data='main_menu')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
