@@ -6,8 +6,9 @@ from typing import Dict, Any, List
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-from database import get_or_create_user, save_weekly_workout_plan
+from database import get_or_create_user, save_weekly_workout_plan, get_sessionmaker, DailyWorkout, WeeklyWorkoutPlan, ExerciseSession
 from ai_agents import query_memory, generate_workout
+from services.progression import start_weekly_plan, apply_session_result
 
 
 TRAIN_CB_PREFIX = "menu:training"
@@ -42,13 +43,75 @@ async def plan_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(text_lines))
 
 
+async def start_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = await get_or_create_user(update.effective_user.id)
+    focus = (context.args[0] if context.args else (user.goal or "hypertrophy")).lower()
+    if focus not in ("strength", "hypertrophy", "endurance"):
+        focus = "hypertrophy"
+    week_start = date.today() - timedelta(days=date.today().weekday())
+    w = await start_weekly_plan(user, week_start, focus)
+    await update.message.reply_text(f"Стартовал недельный план ({focus}). Дней: {len(w.daily_workouts)}")
+
+
+async def complete_set(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        session_id = int(context.args[0])
+        actual_sets = int(context.args[1])
+        actual_reps = [int(x) for x in context.args[2].split(',')]
+        actual_weight = float(context.args[3]) if len(context.args) > 3 else None
+    except Exception:
+        await update.message.reply_text("Формат: /complete_set <session_id> <sets> <r1,r2,...> [weight]")
+        return
+    success, next_load = await apply_session_result(session_id, actual_sets, actual_reps, actual_weight)
+    msg = "✅ Успех!" if success else "⚠️ Не все цели достигнуты."
+    if next_load is not None:
+        msg += f" Следующая рекомендуемая нагрузка: {next_load} кг"
+    await update.message.reply_text(msg)
+
+
+async def complete_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        day_id = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("Формат: /complete_day <daily_workout_id>")
+        return
+    Session = get_sessionmaker()
+    async with Session() as session:
+        from sqlalchemy import select
+        res = await session.execute(select(DailyWorkout).where(DailyWorkout.id == day_id))
+        dw = res.scalar_one()
+        dw.total_volume = float(dw.total_volume or 0.0)  # could compute from sessions
+        await session.commit()
+    await update.message.reply_text("День отмечен завершенным.")
+
+
+async def complete_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        week_id = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("Формат: /complete_week <weekly_plan_id>")
+        return
+    Session = get_sessionmaker()
+    async with Session() as session:
+        from sqlalchemy import select
+        res = await session.execute(select(WeeklyWorkoutPlan).where(WeeklyWorkoutPlan.id == week_id))
+        w = res.scalar_one()
+        w.is_completed = True
+        await session.commit()
+    await update.message.reply_text("Неделя закрыта. Отличная работа!")
+
+
 async def training_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Раздел тренировки: /train_today или /plan_week.")
+    await query.edit_message_text("Раздел тренировки: /start_week <focus>, /complete_set, /complete_day, /complete_week, /train_today, /plan_week.")
 
 
 def register_training_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("train_today", train_today))
     app.add_handler(CommandHandler("plan_week", plan_week))
+    app.add_handler(CommandHandler("start_week", start_week))
+    app.add_handler(CommandHandler("complete_set", complete_set))
+    app.add_handler(CommandHandler("complete_day", complete_day))
+    app.add_handler(CommandHandler("complete_week", complete_week))
     app.add_handler(CallbackQueryHandler(training_menu_handler, pattern=f"^{TRAIN_CB_PREFIX}$"))

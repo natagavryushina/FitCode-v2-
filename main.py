@@ -25,6 +25,7 @@ from modules.progress import register_progress_handlers
 from modules.videos import register_video_handlers
 from modules.analysis import register_analysis_handlers
 from utils import setup_logging, schedule_reminders, register_reminder_commands
+from services.progression import seed_exercises
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -45,6 +46,7 @@ def get_token() -> str:
 
 async def on_startup(app: Application) -> None:
     await init_db()
+    await seed_exercises()
     schedule_reminders(app)
 
 
