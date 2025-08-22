@@ -697,11 +697,6 @@ async def _send_photo_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int, pho
 		return False
 
 
-async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-	"""Handle main menu callback"""
-	await start_command(update, context)
-
-
 async def handle_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 	"""Handle support menu"""
 	await _cleanup_chat_messages(context, update.effective_chat.id)
