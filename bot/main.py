@@ -38,6 +38,30 @@ async def on_startup() -> None:
 		Base.metadata.create_all(bind=engine)
 
 
+# Healthcheck endpoint for uptime probes and quick diagnostics
+async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	await context.bot.send_message(
+		chat_id=update.effective_chat.id,
+		text="OK",
+		parse_mode=ParseMode.HTML,
+	)
+
+
+# Global error handler to avoid crashing on unhandled exceptions
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+	logger = logging.getLogger("errors")
+	logger.exception("Unhandled error: %s", context.error)
+	try:
+		if isinstance(update, Update) and update.effective_chat:
+			await context.bot.send_message(
+				chat_id=update.effective_chat.id,
+				text="Произошла ошибка. Уже чиним 🙏",
+				parse_mode=ParseMode.HTML,
+			)
+	except Exception:
+		pass
+
+
 async def _cleanup_chat_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
 	msg_ids = _ephemeral_messages.get(chat_id) or []
 	if not msg_ids:
@@ -535,9 +559,11 @@ async def run() -> None:
 
 	app.add_handler(CommandHandler("start", start_command))
 	app.add_handler(CommandHandler("help", help_command))
+	app.add_handler(CommandHandler("health", health_command))
 	app.add_handler(CallbackQueryHandler(handle_menu_callback))
 	app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 	app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+	app.add_error_handler(error_handler)
 
 	logger.info("Bot is starting (polling)...")
 	await app.initialize()
