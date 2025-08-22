@@ -23,11 +23,6 @@ from modules.analysis import register_analysis_handlers
 from utils import setup_logging, schedule_reminders
 
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Delegate to onboarding conversation
-    await update.message.reply_text("Привет! Давай познакомимся и настроим твой персональный план.")
-
-
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = build_main_menu()
     await update.message.reply_text("Главное меню", reply_markup=keyboard)
@@ -60,7 +55,6 @@ def main() -> None:
     )
 
     # Core commands
-    application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("menu", menu_command))
 
     # Conversation / FSM onboarding
