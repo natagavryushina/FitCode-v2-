@@ -28,6 +28,12 @@ from services.reminder import setup_scheduler
 _ephemeral_messages: Dict[int, List[int]] = {}
 _hw_waiting: Dict[int, bool] = {}
 
+# Minimal dictionaries for profile selections
+PROFILE_SEX = {"male": "Муж", "female": "Жен"}
+PROFILE_LEVEL = {"beginner": "Новичок", "intermediate": "Средний", "advanced": "Продвинутый"}
+GOAL_CHOICES = ["похудение", "набор_массы", "выносливость", "здоровье", "осанка"]
+EQUIPMENT_CHOICES = ["гантели", "штанга", "турник", "резинки", "без_инвентаря"]
+
 
 def format_big_message(title: str, body: str) -> str:
 	return f"<b>{title}</b>\n\n{body}"
@@ -120,6 +126,32 @@ def _workout_day_kb(plan_id: int, day_index: int) -> InlineKeyboardMarkup:
 			InlineKeyboardButton(text="⬅️ К дням", callback_data="menu_workouts"),
 		]
 	])
+
+
+def _profile_kb() -> InlineKeyboardMarkup:
+	return InlineKeyboardMarkup([
+		[InlineKeyboardButton(text="⚧ Пол", callback_data="profile_sex"), InlineKeyboardButton(text="📈 Уровень", callback_data="profile_level")],
+		[InlineKeyboardButton(text="📏 Рост/Вес", callback_data="profile_hw")],
+		[InlineKeyboardButton(text="🎯 Цели", callback_data="profile_goals"), InlineKeyboardButton(text="🏋️ Инвентарь", callback_data="profile_eq")],
+		[InlineKeyboardButton(text="⬅️ В меню", callback_data="menu_root")],
+	])
+
+
+def _toggle_list_kb(prefix: str, choices: List[str], selected: set[str]) -> InlineKeyboardMarkup:
+	rows: List[List[InlineKeyboardButton]] = []
+	row: List[InlineKeyboardButton] = []
+	for idx, item in enumerate(choices):
+		is_on = item in selected
+		label = ("✅ " if is_on else "⬜ ") + item.replace("_", " ")
+		row.append(InlineKeyboardButton(text=label, callback_data=f"{prefix}{item}"))
+		if len(row) == 2:
+			rows.append(row)
+			row = []
+	if row:
+		rows.append(row)
+	rows.append([InlineKeyboardButton(text="Готово", callback_data=f"{prefix}done")])
+	rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")])
+	return InlineKeyboardMarkup(rows)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -481,18 +513,31 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 					await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
 					return
 			await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
-		elif data.startswith("meals_day_"):
-			idx = int(data.split("_")[-1])
+		elif data == "menu_ai_kbzhu_photo":
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]])
+			text = format_big_message("AI КБЖУ по фото", "Отправь фото блюда, я оценю КБЖУ и дам рекомендации.")
+			img = get_image_url("kbzhu")
+			if img:
+				ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "AI КБЖУ", kb)
+				if ok and len(text) > 1000:
+					await _send_text_big(context, update.effective_chat.id, text, kb)
+					return
+			await _send_text_big(context, update.effective_chat.id, text, kb)
+		elif data == "menu_support":
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="📨 Написать в поддержку", callback_data="support_contact")],[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]])
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Поддержка", "Опиши проблему — я помогу или передам оператору."), kb)
+		elif data == "support_contact":
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Поддержка", "Напишите свой вопрос текстом или голосом. Мы ответим в ближайшее время."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_support")]]))
+		elif data == "menu_loyalty":
 			with session_scope() as s:
 				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-			meal_plan_id, _ = await ensure_week_meals(user)
-			with session_scope() as s2:
-				day = repo.get_meal_day(s2, meal_plan_id, idx)
-				title = day.title if day else f"День {idx+1}"
-				body = day.content_text if day else "~2200 ккал"
-			text = format_big_message(f"Меню — {title}", html.escape(body))
+				points = repo.get_loyalty_points(s, user.id)
 			await _cleanup_chat_messages(context, update.effective_chat.id)
-			await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
+			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="🏆 Использовать баллы скоро", callback_data="menu_root")],[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]])
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Бонусы", f"Твои баллы: {points} 🎉"), kb)
 		elif data == "menu_root":
 			await start_command(update, context)
 		else:
