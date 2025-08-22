@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 from states.workout_logging_states import WorkoutLoggingStates
 from typing import Optional
 
@@ -40,7 +40,8 @@ async def start_strength_logging(update: Update, context: ContextTypes.DEFAULT_T
 	
 	keyboard.extend([
 		[InlineKeyboardButton("➕ Добавить новое упражнение", callback_data="add_new_exercise")],
-		[InlineKeyboardButton("↩️ Назад", callback_data="log_workout")]
+		[InlineKeyboardButton("↩️ Назад", callback_data="log_workout")],
+		[InlineKeyboardButton("❌ Отменить", callback_data="cancel")]
 	])
 	
 	reply_markup = InlineKeyboardMarkup(keyboard)
@@ -95,7 +96,8 @@ async def process_sets_reps(update: Update, context: ContextTypes.DEFAULT_TYPE):
 	text = "💪 *Введите рабочий вес в кг* (или 0 если без веса):"
 	
 	keyboard = [
-		[InlineKeyboardButton("↩️ Назад", callback_data=f"select_exercise:{context.user_data['current_exercise']}")]
+		[InlineKeyboardButton("↩️ Назад", callback_data=f"select_exercise:{context.user_data['current_exercise']}")],
+		[InlineKeyboardButton("❌ Отменить", callback_data="cancel")]
 	]
 	
 	reply_markup = InlineKeyboardMarkup(keyboard)
@@ -134,7 +136,8 @@ async def process_weight(update: Update, context: ContextTypes.DEFAULT_TYPE):
 			[InlineKeyboardButton("9", callback_data="rpe_9"), 
 			 InlineKeyboardButton("10", callback_data="rpe_10"),
 			 InlineKeyboardButton("Пропустить", callback_data="rpe_skip")],
-			[InlineKeyboardButton("↩️ Назад", callback_data="back_to_sets_reps")]
+			[InlineKeyboardButton("↩️ Назад", callback_data="back_to_sets_reps")],
+			[InlineKeyboardButton("❌ Отменить", callback_data="cancel")]
 		]
 		
 		reply_markup = InlineKeyboardMarkup(keyboard)
@@ -174,7 +177,8 @@ async def process_rpe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 	
 	keyboard = [
 		[InlineKeyboardButton("Пропустить", callback_data="notes_skip")],
-		[InlineKeyboardButton("↩️ Назад", callback_data="back_to_weight")]
+		[InlineKeyboardButton("↩️ Назад", callback_data="back_to_weight")],
+		[InlineKeyboardButton("❌ Отменить", callback_data="cancel")]
 	]
 	
 	reply_markup = InlineKeyboardMarkup(keyboard)
@@ -651,6 +655,50 @@ async def handle_workout_history(update: Update, context: ContextTypes.DEFAULT_T
 	)
 	
 	await track_message(context, message.message_id)
+
+async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Обработка подтверждений в процессе внесения тренировки"""
+	query = update.callback_query
+	data = query.data
+	
+	if data == "add_another_exercise":
+		return await add_another_exercise(update, context)
+	elif data == "finish_workout":
+		return await finish_workout(update, context)
+	
+	return WorkoutLoggingStates.CONFIRMATION
+
+async def cancel_logging(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Отмена процесса внесения тренировки"""
+	query = update.callback_query
+	
+	# Очищаем все временные данные
+	context.user_data.pop('workout_data', None)
+	context.user_data.pop('current_exercise', None)
+	context.user_data.pop('logging_workout', None)
+	context.user_data.pop('sets_reps', None)
+	context.user_data.pop('weight', None)
+	context.user_data.pop('rpe', None)
+	context.user_data.pop('exercise_notes', None)
+	context.user_data.pop('waiting_for_exercise_name', None)
+	context.user_data.pop('awaiting_cardio_duration', None)
+	
+	text = "❌ *Внесение тренировки отменено*\n\nВсе данные очищены."
+	
+	keyboard = [
+		[InlineKeyboardButton("🏋️ Попробовать снова", callback_data="log_workout")],
+		[InlineKeyboardButton("🏠 В главное меню", callback_data="menu_root")]
+	]
+	
+	reply_markup = InlineKeyboardMarkup(keyboard)
+	
+	await query.edit_message_text(
+		text=text,
+		reply_markup=reply_markup,
+		parse_mode='Markdown'
+	)
+	
+	return ConversationHandler.END
 
 async def handle_progress_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 	"""Показать график прогресса"""

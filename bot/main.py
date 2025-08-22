@@ -9,7 +9,8 @@ from typing import Dict, List
 import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatAction
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ConversationHandler
+from states.workout_logging_states import WorkoutLoggingStates
 
 from services.config import settings, assert_required_settings
 from services.logging import setup_logging
@@ -697,6 +698,35 @@ def _toggle_list_kb(prefix: str, choices: List[str], selected: set) -> InlineKey
 	return InlineKeyboardMarkup(rows)
 
 
+def setup_workout_logging_handlers(application):
+	"""Настройка обработчиков для внесения тренировок"""
+	
+	# Обработчик начала внесения тренировки
+	application.add_handler(CallbackQueryHandler(handle_log_workout, pattern="^log_workout$"))
+	
+	# Обработчики выбора типа тренировки
+	application.add_handler(CallbackQueryHandler(start_strength_logging, pattern="^log_strength$"))
+	application.add_handler(CallbackQueryHandler(start_cardio_logging, pattern="^log_cardio$"))
+	
+	# ConversationHandler для силовых тренировок
+	strength_conv_handler = ConversationHandler(
+		entry_points=[CallbackQueryHandler(log_sets_reps, pattern="^select_exercise:")],
+		states={
+			WorkoutLoggingStates.LOG_SETS_REPS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_sets_reps)],
+			WorkoutLoggingStates.LOG_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_weight)],
+			WorkoutLoggingStates.LOG_RPE: [CallbackQueryHandler(process_rpe, pattern="^rpe_")],
+			WorkoutLoggingStates.ADD_NOTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_notes)],
+			WorkoutLoggingStates.CONFIRMATION: [CallbackQueryHandler(handle_confirmation, pattern="^(add_another_exercise|finish_workout)$")],
+		},
+		fallbacks=[CallbackQueryHandler(cancel_logging, pattern="^cancel$")]
+	)
+	
+	application.add_handler(strength_conv_handler)
+	
+	# Обработчик истории тренировок
+	application.add_handler(CallbackQueryHandler(handle_workout_history, pattern="^workout_history$"))
+
+
 async def run() -> None:
 	setup_logging(settings.log_level)
 	logger = logging.getLogger("bot")
@@ -720,6 +750,9 @@ async def run() -> None:
 	app.add_handler(CallbackQueryHandler(handle_menu_callback))
 	app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 	app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+
+	# Настройка обработчиков для тренировок
+	setup_workout_logging_handlers(app)
 
 	logger.info("Bot is starting (polling)...")
 	await app.initialize()
