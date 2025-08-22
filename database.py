@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, date
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
@@ -13,6 +13,7 @@ from sqlalchemy import (
     Date,
     JSON,
     Float,
+    Boolean,
     select,
 )
 from sqlalchemy.ext.asyncio import (
@@ -72,6 +73,7 @@ class User(Base):
 
     workout_plans: Mapped[list[WorkoutPlan]] = relationship(back_populates="user")
     nutrition_plans: Mapped[list[NutritionPlan]] = relationship(back_populates="user")
+    weekly_plans: Mapped[list["WeeklyWorkoutPlan"]] = relationship(back_populates="user")
 
 
 class OnboardingState(Base):
@@ -128,6 +130,66 @@ class MessageLog(Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WeeklyWorkoutPlan(Base):
+    __tablename__ = "weekly_workout_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    week_number: Mapped[int] = mapped_column(Integer)
+    start_date: Mapped[datetime] = mapped_column(DateTime)
+    end_date: Mapped[datetime] = mapped_column(DateTime)
+    focus_type: Mapped[Optional[str]] = mapped_column(String(50))  # strength, hypertrophy, endurance, functional
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    user: Mapped[User] = relationship(back_populates="weekly_plans")
+    daily_workouts: Mapped[list["DailyWorkout"]] = relationship(back_populates="weekly_plan", cascade="all, delete-orphan")
+
+
+class DailyWorkout(Base):
+    __tablename__ = "daily_workouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    weekly_plan_id: Mapped[int] = mapped_column(ForeignKey("weekly_workout_plans.id"))
+    day_number: Mapped[int] = mapped_column(Integer)  # 1-7
+    muscle_group: Mapped[Optional[str]] = mapped_column(String(50))  # chest, back, legs, etc.
+    workout_type: Mapped[Optional[str]] = mapped_column(String(50))  # strength, cardio, functional, rest
+    duration_minutes: Mapped[Optional[int]] = mapped_column(Integer)
+    total_volume: Mapped[Optional[float]] = mapped_column(Float)
+
+    weekly_plan: Mapped[WeeklyWorkoutPlan] = relationship(back_populates="daily_workouts")
+    exercise_sessions: Mapped[list["ExerciseSession"]] = relationship(back_populates="daily_workout", cascade="all, delete-orphan")
+
+
+class Exercise(Base):
+    __tablename__ = "exercises"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    primary_muscle: Mapped[Optional[str]] = mapped_column(String(50))
+    equipment: Mapped[Optional[str]] = mapped_column(String(50))
+    is_bodyweight: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ExerciseSession(Base):
+    __tablename__ = "exercise_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    daily_workout_id: Mapped[int] = mapped_column(ForeignKey("daily_workouts.id"))
+    exercise_id: Mapped[int] = mapped_column(ForeignKey("exercises.id"))
+    target_sets: Mapped[Optional[int]] = mapped_column(Integer)
+    target_reps: Mapped[Optional[str]] = mapped_column(String(20))  # "8-12" or "15-20"
+    target_weight: Mapped[Optional[float]] = mapped_column(Float)
+    rest_time_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+    rpe: Mapped[Optional[int]] = mapped_column(Integer)  # 1-10
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    actual_sets: Mapped[Optional[int]] = mapped_column(Integer)
+    actual_reps: Mapped[Optional[List[int]]] = mapped_column(JSON)  # e.g., [12, 10, 8]
+    actual_weight: Mapped[Optional[float]] = mapped_column(Float)
+
+    daily_workout: Mapped[DailyWorkout] = relationship(back_populates="exercise_sessions")
+    exercise: Mapped[Exercise] = relationship()
 
 
 _engine = None
