@@ -56,6 +56,35 @@ async def ensure_week_workouts(user) -> Tuple[int, int]:
 	return plan.id, (today - date.fromisoformat(start_str)).days
 
 
+async def regenerate_week_workouts(user) -> int:
+	"""Force-regenerate workouts for the current week, returns plan_id."""
+	today = date.today()
+	start_str, end_str = _week_range(today)
+	# prompt LLM similar to ensure
+	prompt = (
+		"Составь недельный план тренировок на 7 дней в JSON. Формат: {\n"
+		"  \"days\": [ {\"title\": str, \"text\": str}, ... 7 элементов ]\n}"
+		". Пиши кратко, безопасно, Пиши, сокращай."
+	)
+	try:
+		content, _ = await chat_completion({}, prompt)
+		data = extract_json_block(content) or {}
+		days = data.get("days") or []
+	except OpenRouterError:
+		days = []
+	if not days or len(days) < 7:
+		days = [
+			{"title": f"День {i+1}", "text": "Разминка 5 мин. Базовые упражнения 20–30 мин. Растяжка 5 мин."}
+			for i in range(7)
+		]
+	with session_scope() as s:
+		plan = repo.get_or_create_active_workout_plan(s, user.id, start_str, end_str)
+		for i in range(7):
+			d = days[i] if i < len(days) else {"title": f"День {i+1}", "text": "Отдых/мобилити 20 мин"}
+			repo.upsert_workout_day(s, plan.id, i, d.get("title") or f"День {i+1}", d.get("text") or "...")
+	return plan.id
+
+
 async def ensure_week_meals(user) -> Tuple[int, int]:
 	"""Ensure meal plan exists for current week. Returns (meal_plan_id, today_index)."""
 	today = date.today()

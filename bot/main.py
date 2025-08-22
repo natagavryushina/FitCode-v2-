@@ -23,6 +23,7 @@ from services.images import get_image_url
 from services.planner import ensure_week_workouts, ensure_week_meals
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from services.reminder import setup_scheduler
+from sqlalchemy import select, and_
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -123,6 +124,7 @@ def _workout_day_kb(plan_id: int, day_index: int) -> InlineKeyboardMarkup:
 	return InlineKeyboardMarkup([
 		[
 			InlineKeyboardButton(text="✅ Выполнено", callback_data=f"workout_done_{plan_id}_{day_index}"),
+			InlineKeyboardButton(text="📅 Неделя", callback_data="workouts_weekly_detail"),
 			InlineKeyboardButton(text="⬅️ К дням", callback_data="menu_workouts"),
 		]
 	])
@@ -474,6 +476,48 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			text = format_big_message(f"Тренировки — {title}", html.escape(body))
 			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await _send_text_big(context, update.effective_chat.id, text, _workout_day_kb(plan_id, idx))
+		elif data == "workouts_weekly_detail":
+			# Show list of 7 days with quick nav + actions
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			plan_id, today_idx = await ensure_week_workouts(user)
+			rows: List[List[InlineKeyboardButton]] = []
+			row: List[InlineKeyboardButton] = []
+			for i in range(7):
+				label = f"Д{i+1}"
+				row.append(InlineKeyboardButton(text=label, callback_data=f"workout_day_{i}"))
+				if len(row) == 4:
+					rows.append(row); row = []
+			if row:
+				rows.append(row)
+			actions = [
+				InlineKeyboardButton(text="📊 Статистика", callback_data="weekly_stats"),
+				InlineKeyboardButton(text="🔄 Регенерировать", callback_data="weekly_regenerate"),
+			]
+			rows.append(actions)
+			rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")])
+			kb = InlineKeyboardMarkup(rows)
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Недельный план", "Выберите день или действие"), kb)
+		elif data == "weekly_stats":
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+				# Minimal stats: count of completed days for active plan
+				from sqlalchemy import func
+				from db.models import WorkoutCompletion, UserWorkoutPlan
+				plan = s.execute(select(UserWorkoutPlan).where(and_(UserWorkoutPlan.user_id == user.id, UserWorkoutPlan.is_active == 1)).limit(1)).scalar_one_or_none()
+				completed = 0
+				if plan:
+					completed = s.execute(select(func.count(WorkoutCompletion.id)).where(and_(WorkoutCompletion.user_id == user.id, WorkoutCompletion.plan_id == plan.id))).scalar() or 0
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Статистика недели", f"Выполнено дней: {completed} из 7"), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="workouts_weekly_detail")]]))
+		elif data == "weekly_regenerate":
+			with session_scope() as s:
+				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+			from services.planner import regenerate_week_workouts
+			plan_id = await regenerate_week_workouts(user)
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", "Недельный план перегенерирован"), InlineKeyboardMarkup([[InlineKeyboardButton(text="📅 Открыть план", callback_data="workouts_weekly_detail")],[InlineKeyboardButton(text="⬅️ В меню", callback_data="menu_root")]]))
 		elif data.startswith("workout_done_"):
 			_, _, plan_id_str, idx_str = data.split("_")
 			plan_id = int(plan_id_str)
