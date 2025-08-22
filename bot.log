@@ -1,0 +1,6 @@
+nohup: ignoring input
+2025-08-22 10:52:54 | INFO | apscheduler.scheduler | Scheduler started
+2025-08-22 10:52:54 | INFO | apscheduler.scheduler | Added job "send_daily_reminders" to job store "default"
+2025-08-22 10:52:54 | INFO | bot | Bot is starting (polling)...
+2025-08-22 10:52:55 | INFO | apscheduler.scheduler | Scheduler started
+2025-08-22 10:52:55 | INFO | telegram.ext.Application | Application started
