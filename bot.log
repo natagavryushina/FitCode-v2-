@@ -4,3 +4,75 @@ nohup: ignoring input
 2025-08-22 10:09:11 | INFO | bot | Bot is starting (polling)...
 2025-08-22 10:09:11 | INFO | apscheduler.scheduler | Scheduler started
 2025-08-22 10:09:11 | INFO | telegram.ext.Application | Application started
+2025-08-22 10:16:36 | ERROR | cb | Callback handling failed: Instance <User at 0x7f42340220d0> is not bound to a Session; attribute refresh operation cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
+Traceback (most recent call last):
+  File "/workspace/bot/main.py", line 546, in handle_menu_callback
+    meal_plan_id, today_idx = await ensure_week_meals(user)
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/services/planner.py", line 93, in ensure_week_meals
+    plan = repo.get_or_create_active_meal_plan(s, user.id, start_str, end_str)
+                                                  ^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 566, in __get__
+    return self.impl.get(state, dict_)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 1086, in get
+    value = self._fire_loader_callables(state, key, passive)
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 1116, in _fire_loader_callables
+    return state._load_expired(state, passive)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state.py", line 803, in _load_expired
+    self.manager.expired_attribute_loader(self, toload, passive)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py", line 1603, in load_scalar_attributes
+    raise orm_exc.DetachedInstanceError(
+    ...<2 lines>...
+    )
+sqlalchemy.orm.exc.DetachedInstanceError: Instance <User at 0x7f42340220d0> is not bound to a Session; attribute refresh operation cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
+2025-08-22 10:16:39 | ERROR | cb | Callback handling failed: Instance <User at 0x7f42340220d0> is not bound to a Session; attribute refresh operation cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
+Traceback (most recent call last):
+  File "/workspace/bot/main.py", line 452, in handle_menu_callback
+    plan_id, today_idx = await ensure_week_workouts(user)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/services/planner.py", line 25, in ensure_week_workouts
+    plan = repo.get_or_create_active_workout_plan(s, user.id, start_str, end_str)
+                                                     ^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 566, in __get__
+    return self.impl.get(state, dict_)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 1086, in get
+    value = self._fire_loader_callables(state, key, passive)
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 1116, in _fire_loader_callables
+    return state._load_expired(state, passive)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state.py", line 803, in _load_expired
+    self.manager.expired_attribute_loader(self, toload, passive)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py", line 1603, in load_scalar_attributes
+    raise orm_exc.DetachedInstanceError(
+    ...<2 lines>...
+    )
+sqlalchemy.orm.exc.DetachedInstanceError: Instance <User at 0x7f42340220d0> is not bound to a Session; attribute refresh operation cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
+2025-08-22 10:16:41 | ERROR | cb | Callback handling failed: Instance <User at 0x7f42340322c0> is not bound to a Session; attribute refresh operation cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
+Traceback (most recent call last):
+  File "/workspace/bot/main.py", line 546, in handle_menu_callback
+    meal_plan_id, today_idx = await ensure_week_meals(user)
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/services/planner.py", line 93, in ensure_week_meals
+    plan = repo.get_or_create_active_meal_plan(s, user.id, start_str, end_str)
+                                                  ^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 566, in __get__
+    return self.impl.get(state, dict_)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 1086, in get
+    value = self._fire_loader_callables(state, key, passive)
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py", line 1116, in _fire_loader_callables
+    return state._load_expired(state, passive)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/state.py", line 803, in _load_expired
+    self.manager.expired_attribute_loader(self, toload, passive)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py", line 1603, in load_scalar_attributes
+    raise orm_exc.DetachedInstanceError(
+    ...<2 lines>...
+    )
+sqlalchemy.orm.exc.DetachedInstanceError: Instance <User at 0x7f42340322c0> is not bound to a Session; attribute refresh operation cannot proceed (Background on this error at: https://sqlalche.me/e/20/bhk3)
