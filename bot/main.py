@@ -111,6 +111,22 @@ def _workout_day_kb(plan_id: int, day_index: int) -> InlineKeyboardMarkup:
 	])
 
 
+def _workouts_menu_kb() -> InlineKeyboardMarkup:
+	return InlineKeyboardMarkup([
+		[
+			InlineKeyboardButton(text="📅 План на неделю", callback_data="menu_workouts"),
+			InlineKeyboardButton(text="✅ Внести тренировку", callback_data="log_workout"),
+		],
+		[
+			InlineKeyboardButton(text="📊 История тренировок", callback_data="workout_history"),
+			InlineKeyboardButton(text="📈 Статистика", callback_data="workout_stats"),
+		],
+		[
+			InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_root"),
+		]
+	])
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if settings.feature_db:
 		with session_scope() as s:
@@ -396,34 +412,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 						selected.add(val)
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Инвентарь", "Отметь доступный инвентарь"), _toggle_list_kb("eq_", EQUIPMENT_CHOICES, selected))
 		elif data == "menu_workouts":
-			# Ensure plan and show today
-			user = None
-			if settings.feature_db:
-				with session_scope() as s:
-					user = repo.get_or_create_user(
-						s,
-						tg_user_id=str(update.effective_user.id),
-						username=update.effective_user.username,
-						first_name=update.effective_user.first_name,
-						last_name=update.effective_user.last_name,
-					)
-			if not user:
-				await help_command(update, context)
-				return
-			plan_id, today_idx = await ensure_week_workouts(user)
-			with session_scope() as s:
-				day = repo.get_workout_day(s, plan_id, today_idx)
-				title = day.title if day else f"День {today_idx+1}"
-				body = day.content_text if day else "Сегодня отдых/мобилити 20 мин"
-			text = format_big_message(f"Тренировки — {title}", html.escape(body))
+			# Показываем меню тренировок
+			text = format_big_message("🏋️ Тренировки", "Выберите действие:")
 			await _cleanup_chat_messages(context, update.effective_chat.id)
-			img = get_image_url("workout")
-			if img:
-				ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "Тренировки", _days_kb("workout_day_"))
-				if ok and len(text) > 1000:
-					await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
-					return
-			await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
+			await _send_text_big(context, update.effective_chat.id, text, _workouts_menu_kb())
 		elif data.startswith("workout_day_"):
 			idx = int(data.split("_")[-1])
 			user = None
@@ -496,6 +488,53 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await handle_faq(update, context)
 		elif data == "ask_question":
 			await handle_ask_question(update, context)
+		elif data == "log_workout":
+			from handlers.workout_logging import handle_log_workout
+			await handle_log_workout(update, context)
+		elif data == "log_strength":
+			from handlers.workout_logging import handle_log_strength_workout
+			await handle_log_strength_workout(update, context)
+		elif data == "log_cardio":
+			from handlers.workout_logging import handle_log_cardio_workout
+			await handle_log_cardio_workout(update, context)
+		elif data == "log_yoga":
+			from handlers.workout_logging import handle_log_yoga_workout
+			await handle_log_yoga_workout(update, context)
+		elif data == "log_functional":
+			from handlers.workout_logging import handle_log_functional_workout
+			await handle_log_functional_workout(update, context)
+		elif data == "log_from_plan":
+			from handlers.workout_logging import handle_log_from_plan
+			await handle_log_from_plan(update, context)
+		elif data == "workouts":
+			# Показываем план тренировок на неделю
+			user = None
+			if settings.feature_db:
+				with session_scope() as s:
+					user = repo.get_or_create_user(
+						s,
+						tg_user_id=str(update.effective_user.id),
+						username=update.effective_user.username,
+						first_name=update.effective_user.first_name,
+						last_name=update.effective_user.last_name,
+					)
+			if not user:
+				await help_command(update, context)
+				return
+			plan_id, today_idx = await ensure_week_workouts(user)
+			with session_scope() as s:
+				day = repo.get_workout_day(s, plan_id, today_idx)
+				title = day.title if day else f"День {today_idx+1}"
+				body = day.content_text if day else "Сегодня отдых/мобилити 20 мин"
+			text = format_big_message(f"Тренировки — {title}", html.escape(body))
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			img = get_image_url("workout")
+			if img:
+				ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "Тренировки", _days_kb("workout_day_"))
+				if ok and len(text) > 1000:
+					await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
+					return
+			await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
 		elif data == "main_menu":
 			await start_command(update, context)
 		elif data == "menu_root":
