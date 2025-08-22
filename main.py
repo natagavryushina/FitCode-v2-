@@ -19,6 +19,7 @@ from modules.training import register_training_handlers
 from modules.nutrition import register_nutrition_handlers
 from modules.progress import register_progress_handlers
 from modules.videos import register_video_handlers
+from modules.analysis import register_analysis_handlers
 from utils import setup_logging, schedule_reminders
 
 
@@ -70,6 +71,7 @@ def main() -> None:
     register_nutrition_handlers(application)
     register_progress_handlers(application)
     register_video_handlers(application)
+    register_analysis_handlers(application)
 
     # Callback queries for menu are handled inside modules via shared prefix routing
 
