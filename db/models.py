@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, CheckConstraint, UniqueConstraint, Float
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, CheckConstraint, UniqueConstraint, Float, Boolean, DateTime, JSON
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -219,3 +219,57 @@ class CompletedExercise(Base):
 		CheckConstraint("reps > 0", name="reps_positive_check"),
 		CheckConstraint("weight >= 0", name="weight_non_negative_check"),
 	)
+
+
+class TrainingProgram(Base):
+	__tablename__ = 'training_programs'
+	
+	id = Column(Integer, primary_key=True)
+	name = Column(String, nullable=False)  # Название программы
+	description = Column(Text)  # Описание программы
+	goal = Column(String)  # Цель программы (похудение, масса, тонус)
+	level = Column(String)  # Уровень сложности (начальный, средний, продвинутый)
+	duration_weeks = Column(Integer)  # Продолжительность в неделях
+	days_per_week = Column(Integer)  # Тренировок в неделю
+	equipment = Column(String)  # Необходимое оборудование
+	image_url = Column(String)  # URL изображения программы
+	is_active = Column(Boolean, default=True)  # Активна ли программа
+	created_at = Column(DateTime, default=datetime.utcnow)
+	
+	# Связи
+	workouts = relationship("ProgramWorkout", back_populates="program", cascade="all, delete-orphan")
+	user_programs = relationship("UserProgram", back_populates="program")
+
+
+class ProgramWorkout(Base):
+	__tablename__ = 'program_workouts'
+	
+	id = Column(Integer, primary_key=True)
+	program_id = Column(Integer, ForeignKey('training_programs.id'), nullable=False)
+	week_number = Column(Integer)  # Номер недели
+	day_number = Column(Integer)  # Номер дня в неделе
+	workout_type = Column(String)  # Тип тренировки
+	muscle_groups = Column(String)  # Целевые группы мышц
+	duration_minutes = Column(Integer)  # Примерная длительность
+	exercises = Column(JSON)  # Упражнения в формате JSON
+	
+	# Связи
+	program = relationship("TrainingProgram", back_populates="workouts")
+
+
+class UserProgram(Base):
+	__tablename__ = 'user_programs'
+	
+	id = Column(Integer, primary_key=True)
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+	program_id = Column(Integer, ForeignKey('training_programs.id'), nullable=False)
+	start_date = Column(DateTime)  # Дата начала программы
+	current_week = Column(Integer, default=1)  # Текущая неделя
+	current_day = Column(Integer, default=1)  # Текущий день
+	is_completed = Column(Boolean, default=False)  # Завершена ли программа
+	completed_workouts = Column(JSON)  # Завершенные тренировки
+	created_at = Column(DateTime, default=datetime.utcnow)
+	
+	# Связи
+	user = relationship("User")
+	program = relationship("TrainingProgram", back_populates="user_programs")

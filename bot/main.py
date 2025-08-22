@@ -25,6 +25,7 @@ from services.planner import ensure_week_workouts, ensure_week_meals
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from services.reminder import setup_scheduler
 from handlers.support_handler import handle_support, handle_contact_support, handle_faq, handle_ask_question
+from handlers.ready_programs_handler import handle_ready_programs, view_program_details, view_program_workouts, start_program_confirmation, confirm_start_program, show_my_progress, show_current_workout, complete_current_workout, handle_active_program_warning, ReadyProgramStates
 
 # Constants
 PROFILE_SEX = {"male", "female"}
@@ -119,10 +120,11 @@ def _workouts_menu_kb() -> InlineKeyboardMarkup:
 			InlineKeyboardButton(text="✅ Внести тренировку", callback_data="log_workout"),
 		],
 		[
+			InlineKeyboardButton(text="📚 Готовые программы", callback_data="ready_programs"),
 			InlineKeyboardButton(text="📊 История тренировок", callback_data="workout_history"),
-			InlineKeyboardButton(text="📈 Статистика", callback_data="workout_stats"),
 		],
 		[
+			InlineKeyboardButton(text="📈 Статистика", callback_data="workout_stats"),
 			InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_root"),
 		]
 	])
@@ -579,6 +581,24 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		elif data == "detailed_stats":
 			from handlers.workout_logging_handlers import handle_detailed_stats
 			await handle_detailed_stats(update, context)
+		elif data == "ready_programs":
+			await handle_ready_programs(update, context)
+		elif data.startswith("view_program:"):
+			await view_program_details(update, context)
+		elif data.startswith("view_workouts:"):
+			await view_program_workouts(update, context)
+		elif data.startswith("start_program:"):
+			await start_program_confirmation(update, context)
+		elif data.startswith("confirm_start:"):
+			await confirm_start_program(update, context)
+		elif data.startswith("my_progress:"):
+			await show_my_progress(update, context)
+		elif data.startswith("current_workout:"):
+			await show_current_workout(update, context)
+		elif data.startswith("complete_workout:"):
+			await complete_current_workout(update, context)
+		elif data == "active_program_warning":
+			await handle_active_program_warning(update, context)
 		elif data == "workouts":
 			# Показываем план тренировок на неделю
 			user = None

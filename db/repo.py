@@ -5,7 +5,7 @@ import json
 from datetime import date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
-from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount, UserWorkoutPlan, UserWorkoutDay, MealPlan, MealDay, WorkoutCompletion, CompletedWorkout, CompletedExercise
+from db.models import User, Message, Transcription, LLMRequest, LLMResponse, WorkoutHistory, LoyaltyAccount, UserWorkoutPlan, UserWorkoutDay, MealPlan, MealDay, WorkoutCompletion, CompletedWorkout, CompletedExercise, TrainingProgram, ProgramWorkout, UserProgram
 
 
 def get_or_create_user(session: Session, tg_user_id: str, username: str | None, first_name: str | None, last_name: str | None) -> User:
@@ -282,3 +282,124 @@ def get_user_exercise_stats(session: Session, user_id: int, exercise_name: str, 
 		))
 	
 	return stats
+
+
+# Функции для работы с готовыми тренировочными программами
+def get_all_training_programs(session: Session, active_only: bool = True) -> list['TrainingProgram']:
+	"""Получение всех доступных тренировочных программ"""
+	
+	query = session.query(TrainingProgram)
+	if active_only:
+		query = query.filter_by(is_active=True)
+	
+	return query.order_by(TrainingProgram.name).all()
+
+
+def get_training_program_by_id(session: Session, program_id: int) -> Optional['TrainingProgram']:
+	"""Получение программы по ID"""
+	
+	return session.get(TrainingProgram, program_id)
+
+
+def get_training_programs_by_goal(session: Session, goal: str, level: str | None = None) -> list['TrainingProgram']:
+	"""Получение программ по цели и уровню"""
+	
+	query = session.query(TrainingProgram).filter_by(goal=goal, is_active=True)
+	if level:
+		query = query.filter_by(level=level)
+	
+	return query.order_by(TrainingProgram.name).all()
+
+
+def get_program_workouts(session: Session, program_id: int, week_number: int | None = None) -> list['ProgramWorkout']:
+	"""Получение тренировок программы для конкретной недели или всех"""
+	
+	query = session.query(ProgramWorkout).filter_by(program_id=program_id)
+	if week_number is not None:
+		query = query.filter_by(week_number=week_number)
+	
+	return query.order_by(ProgramWorkout.week_number, ProgramWorkout.day_number).all()
+
+
+def get_user_active_program(session: Session, user_id: int) -> Optional['UserProgram']:
+	"""Получение активной программы пользователя"""
+	
+	return session.query(UserProgram).filter_by(
+		user_id=user_id,
+		is_completed=False
+	).first()
+
+
+def start_user_program(session: Session, user_id: int, program_id: int) -> 'UserProgram':
+	"""Начало программы пользователем"""
+	
+	# Проверяем, нет ли уже активной программы
+	existing = get_user_active_program(session, user_id)
+	if existing:
+		raise ValueError("У пользователя уже есть активная программа")
+	
+	user_program = UserProgram(
+		user_id=user_id,
+		program_id=program_id,
+		start_date=datetime.utcnow(),
+		current_week=1,
+		current_day=1,
+		completed_workouts=[]
+	)
+	
+	session.add(user_program)
+	session.flush()
+	return user_program
+
+
+def complete_program_workout(session: Session, user_program_id: int, week: int, day: int) -> None:
+	"""Отметка тренировки как выполненной"""
+	
+	user_program = session.get(UserProgram, user_program_id)
+	if not user_program:
+		return
+	
+	# Добавляем тренировку в список выполненных
+	completed = user_program.completed_workouts or []
+	workout_key = f"{week}_{day}"
+	
+	if workout_key not in completed:
+		completed.append(workout_key)
+		user_program.completed_workouts = completed
+	
+	# Обновляем текущий день/неделю
+	if day < user_program.program.days_per_week:
+		user_program.current_day = day + 1
+	else:
+		user_program.current_week += 1
+		user_program.current_day = 1
+	
+	# Проверяем завершение программы
+	if user_program.current_week > user_program.program.duration_weeks:
+		user_program.is_completed = True
+	
+	session.add(user_program)
+	session.flush()
+
+
+def get_user_program_progress(session: Session, user_program_id: int) -> Dict[str, Any]:
+	"""Получение прогресса пользователя по программе"""
+	
+	user_program = session.get(UserProgram, user_program_id)
+	if not user_program:
+		return {}
+	
+	program = user_program.program
+	total_workouts = program.duration_weeks * program.days_per_week
+	completed_count = len(user_program.completed_workouts or [])
+	
+	return {
+		'current_week': user_program.current_week,
+		'current_day': user_program.current_day,
+		'total_weeks': program.duration_weeks,
+		'days_per_week': program.days_per_week,
+		'completed_workouts': completed_count,
+		'total_workouts': total_workouts,
+		'progress_percent': (completed_count / total_workouts * 100) if total_workouts > 0 else 0,
+		'is_completed': user_program.is_completed
+	}
