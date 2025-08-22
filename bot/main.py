@@ -26,6 +26,7 @@ from services.reminder import setup_scheduler
 from sqlalchemy import select, and_
 
 from bot.handlers.menu_handlers import handle_main_menu
+from bot.handlers.personal_cabinet_handler import handle_personal_cabinet
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -391,12 +392,11 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		await query.answer(text=None, show_alert=False)
 		_ephemeral_messages.setdefault(query.message.chat_id, []).append(query.message.message_id)
 		if data == "menu_profile":
-			# Show profile menu
-			with session_scope() as s:
-				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-			text = format_big_message("Личный кабинет", "Измени параметры профиля: пол, уровень, рост/вес, цели и инвентарь.")
-			await _cleanup_chat_messages(context, update.effective_chat.id)
-			await _send_text_big(context, update.effective_chat.id, text, _profile_kb())
+			await handle_personal_cabinet(update, context)
+		elif data == "profile_edit":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Редактирование", "Скоро добавим форму редактирования профиля."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
+		elif data == "profile_stats":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Статистика", "Скоро добавим подробную статистику."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
 		elif data == "profile_sex":
 			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="Муж", callback_data="profile_sex_set_male"), InlineKeyboardButton(text="Жен", callback_data="profile_sex_set_female")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
 			await _cleanup_chat_messages(context, update.effective_chat.id)
