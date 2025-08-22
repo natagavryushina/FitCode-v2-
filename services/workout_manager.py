@@ -172,3 +172,81 @@ class WeeklyWorkoutManager:
             await session.commit()
 
         return week
+
+    async def get_current_weekly_plan(self, telegram_id: int) -> Optional[WeeklyWorkoutPlan]:
+        """Возвращает план текущей недели (если существует)."""
+        from datetime import date, timedelta, datetime as dt
+        Session = get_sessionmaker()
+        async with Session() as session:
+            res_user = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            user = res_user.scalar_one()
+            start = date.today() - timedelta(days=date.today().weekday())
+            start_dt = dt.combine(start, dt.min.time())
+            res = await session.execute(
+                select(WeeklyWorkoutPlan)
+                .where(WeeklyWorkoutPlan.user_id == user.id, WeeklyWorkoutPlan.start_date == start_dt)
+                .limit(1)
+            )
+            return res.scalar_one_or_none()
+
+    async def get_today_workout(self, telegram_id: int) -> Dict[str, Any]:
+        """Формирует данные по сегодняшней тренировке из БД."""
+        from datetime import date, timedelta, datetime as dt
+        Session = get_sessionmaker()
+        async with Session() as session:
+            res_user = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            user = res_user.scalar_one()
+            week_start = date.today() - timedelta(days=date.today().weekday())
+            res_w = await session.execute(
+                select(WeeklyWorkoutPlan).where(WeeklyWorkoutPlan.user_id == user.id).order_by(WeeklyWorkoutPlan.start_date.desc())
+            )
+            week = res_w.scalars().first()
+            if not week:
+                week = await self.generate_weekly_plan(telegram_id)
+                # re-open session to fetch daily data
+                res_w = await session.execute(
+                    select(WeeklyWorkoutPlan).where(WeeklyWorkoutPlan.user_id == user.id).order_by(WeeklyWorkoutPlan.start_date.desc())
+                )
+                week = res_w.scalars().first()
+            # day number 1..7
+            dnum = date.today().weekday() + 1
+            res_dw = await session.execute(select(DailyWorkout).where(DailyWorkout.weekly_plan_id == week.id, DailyWorkout.day_number == dnum))
+            dw = res_dw.scalar_one()
+            res_s = await session.execute(select(ExerciseSession).where(ExerciseSession.daily_workout_id == dw.id))
+            sessions = res_s.scalars().all()
+            exercises = []
+            for s in sessions:
+                exercises.append({
+                    "session_id": s.id,
+                    "name": getattr(s.exercise, 'name', ''),
+                    "sets": s.target_sets,
+                    "reps": s.target_reps,
+                    "weight": s.target_weight,
+                    "rest": s.rest_time_seconds,
+                    "rpe": s.rpe,
+                })
+            return {
+                "week_id": week.id,
+                "day_number": dnum,
+                "muscle_group": dw.muscle_group,
+                "workout_type": dw.workout_type,
+                "exercises": exercises,
+            }
+
+    async def log_completion(self, telegram_id: int, workout_data: Dict[str, Any]) -> None:
+        """Сохраняет выполненную тренировку: отметка сетов/повторов/весов по сессиям."""
+        Session = get_sessionmaker()
+        async with Session() as session:
+            for item in workout_data.get('sessions', []):
+                sid = int(item.get('session_id'))
+                res = await session.execute(select(ExerciseSession).where(ExerciseSession.id == sid))
+                s = res.scalar_one()
+                s.actual_sets = int(item.get('sets', 0))
+                reps = item.get('reps', [])
+                if isinstance(reps, str):
+                    reps = [int(x) for x in reps.split(',') if x]
+                s.actual_reps = reps
+                w = item.get('weight')
+                s.actual_weight = float(w) if w is not None else None
+                s.is_completed = True
+            await session.commit()

@@ -26,6 +26,12 @@ from modules.videos import register_video_handlers
 from modules.analysis import register_analysis_handlers
 from utils import setup_logging, schedule_reminders, register_reminder_commands
 from services.progression import seed_exercises
+from handlers.workout_handlers import (
+    handle_weekly_plan,
+    handle_daily_workout,
+    log_workout_completion,
+    auto_update_weekly_plans,
+)
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -48,6 +54,8 @@ async def on_startup(app: Application) -> None:
     await init_db()
     await seed_exercises()
     schedule_reminders(app)
+    # Auto-update plans on Sundays at 20:00 server time
+    app.job_queue.run_daily(auto_update_weekly_plans, time=time(hour=20, minute=0), days=(6,))
 
 
 def main() -> None:
@@ -63,6 +71,9 @@ def main() -> None:
     # Core commands
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("start", menu_command))
+    application.add_handler(CommandHandler("weekly_plan", handle_weekly_plan))
+    application.add_handler(CommandHandler("workout_today", handle_daily_workout))
+    application.add_handler(CommandHandler("log_workout", log_workout_completion))
     
     # Global text logger (skip commands)
     async def _log_any(update: Update, context: ContextTypes.DEFAULT_TYPE):
