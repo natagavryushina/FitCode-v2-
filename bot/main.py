@@ -312,6 +312,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 		return
 	
+	# Проверяем, ожидается ли ввод длительности кардио
+	if context.user_data.get('logging_workout', {}).get('step') == 'duration' or context.user_data.get('awaiting_cardio_duration'):
+		from handlers.workout_logging_handlers import process_cardio_duration
+		await process_cardio_duration(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
 	await _reply_with_llm(update, context, user_text, title="Ответ готов ✨")
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -523,8 +530,11 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			from handlers.workout_logging_handlers import start_strength_logging
 			await start_strength_logging(update, context)
 		elif data == "log_cardio":
-			from handlers.workout_logging import handle_log_cardio_workout
-			await handle_log_cardio_workout(update, context)
+			from handlers.workout_logging_handlers import start_cardio_logging
+			await start_cardio_logging(update, context)
+		elif data in ("cardio_run","cardio_bike","cardio_swim","cardio_walk","cardio_other"):
+			from handlers.workout_logging_handlers import process_cardio_type
+			await process_cardio_type(update, context)
 		elif data == "log_yoga":
 			from handlers.workout_logging import handle_log_yoga_workout
 			await handle_log_yoga_workout(update, context)
