@@ -31,3 +31,15 @@ def build_video_categories() -> InlineKeyboardMarkup:
     ]
     rows = [[InlineKeyboardButton(text, callback_data=data)] for text, data in categories]
     return InlineKeyboardMarkup(rows)
+
+
+def workout_menu_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton("📅 Недельный план", callback_data='weekly_plan')],
+        [InlineKeyboardButton("🏋️ Сегодняшняя тренировка", callback_data='today_workout')],
+        [InlineKeyboardButton("✅ Отметить выполнение", callback_data='log_workout')],
+        [InlineKeyboardButton("📊 Прогресс нагрузок", callback_data='workout_progress')],
+        [InlineKeyboardButton("🔄 Обновить план", callback_data='refresh_plan')],
+        [InlineKeyboardButton("↩️ Назад", callback_data='main_menu')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
