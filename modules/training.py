@@ -9,6 +9,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from database import get_or_create_user, save_weekly_workout_plan, get_sessionmaker, DailyWorkout, WeeklyWorkoutPlan, ExerciseSession
 from ai_agents import query_memory, generate_workout
 from services.progression import start_weekly_plan, apply_session_result
+from services.workout_manager import WeeklyWorkoutManager
 
 
 TRAIN_CB_PREFIX = "menu:training"
@@ -107,6 +108,20 @@ async def training_menu_handler(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text("Раздел тренировки: /start_week <focus>, /complete_set, /complete_day, /complete_week, /train_today, /plan_week.")
 
 
+async def start_week_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mgr = WeeklyWorkoutManager()
+    week = await mgr.generate_weekly_plan(update.effective_user.id)
+    Session = get_sessionmaker()
+    async with Session() as session:
+        from sqlalchemy import select
+        res = await session.execute(select(DailyWorkout).where(DailyWorkout.weekly_plan_id == week.id).order_by(DailyWorkout.day_number.asc()))
+        dws = res.scalars().all()
+        lines = [f"План недели ({week.focus_type}):"]
+        for dw in dws:
+            lines.append(f"День {dw.day_number}: {dw.muscle_group} — объём {dw.total_volume or 0}")
+    await update.message.reply_text("\n".join(lines))
+
+
 def register_training_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("train_today", train_today))
     app.add_handler(CommandHandler("plan_week", plan_week))
@@ -114,4 +129,5 @@ def register_training_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("complete_set", complete_set))
     app.add_handler(CommandHandler("complete_day", complete_day))
     app.add_handler(CommandHandler("complete_week", complete_week))
+    app.add_handler(CommandHandler("start_week_auto", start_week_auto))
     app.add_handler(CallbackQueryHandler(training_menu_handler, pattern=f"^{TRAIN_CB_PREFIX}$"))
