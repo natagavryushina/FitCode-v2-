@@ -9,7 +9,8 @@ from typing import Dict, List
 import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatAction
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters, ConversationHandler
+from states.workout_logging_states import WorkoutLoggingStates
 
 from services.config import settings, assert_required_settings
 from services.logging import setup_logging
@@ -23,6 +24,27 @@ from services.images import get_image_url
 from services.planner import ensure_week_workouts, ensure_week_meals
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from services.reminder import setup_scheduler
+from handlers.support_handler import handle_support, handle_contact_support, handle_faq, handle_ask_question
+from handlers.program_handlers import (
+    handle_training_programs, show_program_details, show_programs_filter, 
+    show_filtered_programs, show_my_programs, view_program_plan, 
+    start_program_confirmation, confirm_start_program, show_current_workout, 
+    show_program_progress, complete_program_workout_handler, ProgramStates,
+    filter_programs_by_goal, filter_programs_by_level, filter_programs_by_duration,
+    filter_programs_by_equipment
+)
+
+# Constants
+PROFILE_SEX = {"male", "female"}
+PROFILE_LEVEL = {"beginner", "intermediate", "advanced"}
+GOAL_CHOICES = [
+    "fat_loss", "muscle_gain", "strength", "endurance", 
+    "mobility", "rehabilitation", "weight_maintenance"
+]
+EQUIPMENT_CHOICES = [
+    "dumbbells", "barbell", "kettlebell", "resistance_bands", 
+    "pullup_bar", "bench", "cardio_machine", "bodyweight_only"
+]
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -94,6 +116,23 @@ def _workout_day_kb(plan_id: int, day_index: int) -> InlineKeyboardMarkup:
 		[
 			InlineKeyboardButton(text="✅ Выполнено", callback_data=f"workout_done_{plan_id}_{day_index}"),
 			InlineKeyboardButton(text="⬅️ К дням", callback_data="menu_workouts"),
+		]
+	])
+
+
+def _workouts_menu_kb() -> InlineKeyboardMarkup:
+	return InlineKeyboardMarkup([
+		[
+			InlineKeyboardButton(text="📅 План на неделю", callback_data="menu_workouts"),
+			InlineKeyboardButton(text="✅ Внести тренировку", callback_data="log_workout"),
+		],
+		[
+			InlineKeyboardButton(text="📚 Готовые программы", callback_data="ready_programs"),
+			InlineKeyboardButton(text="📊 История тренировок", callback_data="workout_history"),
+		],
+		[
+			InlineKeyboardButton(text="📈 Статистика", callback_data="workout_stats"),
+			InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_root"),
 		]
 	])
 
@@ -247,6 +286,56 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		await _send_text_big(context, update.effective_chat.id, format_big_message("Ошибка", "Формат: 180 75. Попробуй ещё раз."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 		return
+	
+	# Проверяем, ожидается ли вопрос от пользователя
+	if context.user_data.get('waiting_for_question', False):
+		from handlers.support_handler import handle_user_question
+		await handle_user_question(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли название упражнения
+	if context.user_data.get('waiting_for_exercise_name', False):
+		from handlers.workout_logging_handlers import process_new_exercise_name
+		await process_new_exercise_name(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод подходов и повторений
+	if context.user_data.get('logging_workout', {}).get('step') == 'sets_reps':
+		from handlers.workout_logging_handlers import process_sets_reps
+		await process_sets_reps(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод веса
+	if context.user_data.get('logging_workout', {}).get('step') == 'weight':
+		from handlers.workout_logging_handlers import process_weight
+		await process_weight(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод заметок
+	if context.user_data.get('logging_workout', {}).get('step') == 'notes':
+		from handlers.workout_logging_handlers import process_notes
+		await process_notes(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод длительности кардио
+	if context.user_data.get('logging_workout', {}).get('step') == 'duration' or context.user_data.get('awaiting_cardio_duration'):
+		from handlers.workout_logging_handlers import process_cardio_duration
+		await process_cardio_duration(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод длительности силовой тренировки
+	if context.user_data.get('logging_workout', {}).get('step') == 'workout_duration':
+		from handlers.workout_logging_handlers import process_workout_duration
+		await process_workout_duration(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
 	await _reply_with_llm(update, context, user_text, title="Ответ готов ✨")
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -375,34 +464,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 						selected.add(val)
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Инвентарь", "Отметь доступный инвентарь"), _toggle_list_kb("eq_", EQUIPMENT_CHOICES, selected))
 		elif data == "menu_workouts":
-			# Ensure plan and show today
-			user = None
-			if settings.feature_db:
-				with session_scope() as s:
-					user = repo.get_or_create_user(
-						s,
-						tg_user_id=str(update.effective_user.id),
-						username=update.effective_user.username,
-						first_name=update.effective_user.first_name,
-						last_name=update.effective_user.last_name,
-					)
-			if not user:
-				await help_command(update, context)
-				return
-			plan_id, today_idx = await ensure_week_workouts(user)
-			with session_scope() as s:
-				day = repo.get_workout_day(s, plan_id, today_idx)
-				title = day.title if day else f"День {today_idx+1}"
-				body = day.content_text if day else "Сегодня отдых/мобилити 20 мин"
-			text = format_big_message(f"Тренировки — {title}", html.escape(body))
+			# Показываем меню тренировок
+			text = format_big_message("🏋️ Тренировки", "Выберите действие:")
 			await _cleanup_chat_messages(context, update.effective_chat.id)
-			img = get_image_url("workout")
-			if img:
-				ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "Тренировки", _days_kb("workout_day_"))
-				if ok and len(text) > 1000:
-					await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
-					return
-			await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
+			await _send_text_big(context, update.effective_chat.id, text, _workouts_menu_kb())
 		elif data.startswith("workout_day_"):
 			idx = int(data.split("_")[-1])
 			user = None
@@ -467,6 +532,125 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			text = format_big_message(f"Меню — {title}", html.escape(body))
 			await _cleanup_chat_messages(context, update.effective_chat.id)
 			await _send_text_big(context, update.effective_chat.id, text, _days_kb("meals_day_"))
+		elif data == "menu_support":
+			await handle_support(update, context)
+		elif data == "support":
+			await handle_contact_support(update, context)
+		elif data == "faq":
+			await handle_faq(update, context)
+		elif data == "ask_question":
+			await handle_ask_question(update, context)
+		elif data == "log_workout":
+			from handlers.workout_logging import handle_log_workout
+			await handle_log_workout(update, context)
+		elif data == "log_strength":
+			from handlers.workout_logging_handlers import start_strength_logging
+			await start_strength_logging(update, context)
+		elif data == "log_cardio":
+			from handlers.workout_logging_handlers import start_cardio_logging
+			await start_cardio_logging(update, context)
+		elif data in ("cardio_run","cardio_bike","cardio_swim","cardio_walk","cardio_other"):
+			from handlers.workout_logging_handlers import process_cardio_type
+			await process_cardio_type(update, context)
+		elif data == "log_yoga":
+			from handlers.workout_logging import handle_log_yoga_workout
+			await handle_log_yoga_workout(update, context)
+		elif data == "log_functional":
+			from handlers.workout_logging import handle_log_functional_workout
+			await handle_log_functional_workout(update, context)
+		elif data == "log_from_plan":
+			from handlers.workout_logging import handle_log_from_plan
+			await handle_log_from_plan(update, context)
+		elif data.startswith("select_exercise:"):
+			from handlers.workout_logging_handlers import log_sets_reps
+			await log_sets_reps(update, context)
+		elif data == "add_new_exercise":
+			from handlers.workout_logging_handlers import add_new_exercise
+			await add_new_exercise(update, context)
+		elif data.startswith("rpe_"):
+			from handlers.workout_logging_handlers import process_rpe
+			await process_rpe(update, context)
+		elif data == "notes_skip":
+			from handlers.workout_logging_handlers import process_notes
+			await process_notes(update, context)
+		elif data == "finish_workout":
+			from handlers.workout_logging_handlers import finish_workout
+			await finish_workout(update, context)
+		elif data == "add_another_exercise":
+			from handlers.workout_logging_handlers import add_another_exercise
+			await add_another_exercise(update, context)
+		elif data == "workout_history":
+			from handlers.workout_logging_handlers import handle_workout_history
+			await handle_workout_history(update, context)
+		elif data == "progress_chart":
+			from handlers.workout_logging_handlers import handle_progress_chart
+			await handle_progress_chart(update, context)
+		elif data == "detailed_stats":
+			from handlers.workout_logging_handlers import handle_detailed_stats
+			await handle_detailed_stats(update, context)
+		elif data == "ready_programs":
+			await handle_training_programs(update, context)
+		elif data == "training_programs":
+			await handle_training_programs(update, context)
+		elif data.startswith("program_"):
+			await show_program_details(update, context)
+		elif data == "programs_filter":
+			await show_programs_filter(update, context)
+		elif data == "filter_goal":
+			await filter_programs_by_goal(update, context)
+		elif data == "filter_level":
+			await filter_programs_by_level(update, context)
+		elif data == "filter_duration":
+			await filter_programs_by_duration(update, context)
+		elif data == "filter_equipment":
+			await filter_programs_by_equipment(update, context)
+		elif data.startswith("filter_"):
+			await show_filtered_programs(update, context)
+		elif data == "my_programs":
+			await show_my_programs(update, context)
+		elif data.startswith("view_program_plan_"):
+			await view_program_plan(update, context)
+		elif data.startswith("start_program_"):
+			await start_program_confirmation(update, context)
+		elif data.startswith("confirm_start_"):
+			await confirm_start_program(update, context)
+		elif data.startswith("my_progress:"):
+			await show_program_progress(update, context)
+		elif data.startswith("current_workout:"):
+			await show_current_workout(update, context)
+		elif data.startswith("complete_workout:"):
+			await complete_program_workout_handler(update, context)
+		elif data == "workouts":
+			# Показываем план тренировок на неделю
+			user = None
+			if settings.feature_db:
+				with session_scope() as s:
+					user = repo.get_or_create_user(
+						s,
+						tg_user_id=str(update.effective_user.id),
+						username=update.effective_user.username,
+						first_name=update.effective_user.first_name,
+						last_name=update.effective_user.last_name,
+					)
+			if not user:
+				await help_command(update, context)
+				return
+			plan_id, today_idx = await ensure_week_workouts(user)
+			with session_scope() as s:
+				day = repo.get_workout_day(s, plan_id, today_idx)
+				title = day.title if day else f"День {today_idx+1}"
+				body = day.content_text if day else "Сегодня отдых/мобилити 20 мин"
+			text = format_big_message(f"Тренировки — {title}", html.escape(body))
+			await _cleanup_chat_messages(context, update.effective_chat.id)
+			img = get_image_url("workout")
+			if img:
+				ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "Тренировки", _days_kb("workout_day_"))
+				if ok and len(text) > 1000:
+					await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
+					return
+			await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
+		elif data == "main_menu":
+			await start_command(update, context)
 		elif data == "menu_root":
 			await start_command(update, context)
 		else:
@@ -513,6 +697,77 @@ async def _send_photo_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int, pho
 		return False
 
 
+def _profile_kb() -> InlineKeyboardMarkup:
+	return InlineKeyboardMarkup([
+		[
+			InlineKeyboardButton(text="👤 Пол", callback_data="profile_sex"),
+			InlineKeyboardButton(text="🏋️ Уровень", callback_data="profile_level"),
+		],
+		[
+			InlineKeyboardButton(text="📏 Рост/Вес", callback_data="profile_hw"),
+			InlineKeyboardButton(text="🎯 Цели", callback_data="profile_goals"),
+		],
+		[
+			InlineKeyboardButton(text="🛠️ Инвентарь", callback_data="profile_eq"),
+		],
+		[
+			InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root"),
+		]
+	])
+
+
+def _toggle_list_kb(prefix: str, choices: List[str], selected: set) -> InlineKeyboardMarkup:
+	rows = []
+	row = []
+	for choice in choices:
+		# Convert choice to display name
+		display_name = choice.replace("_", " ").title()
+		if choice in selected:
+			display_name = f"✅ {display_name}"
+		else:
+			display_name = f"⬜ {display_name}"
+		
+		btn = InlineKeyboardButton(text=display_name, callback_data=f"{prefix}{choice}")
+		row.append(btn)
+		if len(row) == 2:
+			rows.append(row)
+			row = []
+	if row:
+		rows.append(row)
+	rows.append([InlineKeyboardButton(text="✅ Готово", callback_data=f"{prefix}done")])
+	rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")])
+	return InlineKeyboardMarkup(rows)
+
+
+def setup_workout_logging_handlers(application):
+	"""Настройка обработчиков для внесения тренировок"""
+	
+	# Обработчик начала внесения тренировки
+	application.add_handler(CallbackQueryHandler(handle_log_workout, pattern="^log_workout$"))
+	
+	# Обработчики выбора типа тренировки
+	application.add_handler(CallbackQueryHandler(start_strength_logging, pattern="^log_strength$"))
+	application.add_handler(CallbackQueryHandler(start_cardio_logging, pattern="^log_cardio$"))
+	
+	# ConversationHandler для силовых тренировок
+	strength_conv_handler = ConversationHandler(
+		entry_points=[CallbackQueryHandler(log_sets_reps, pattern="^select_exercise:")],
+		states={
+			WorkoutLoggingStates.LOG_SETS_REPS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_sets_reps)],
+			WorkoutLoggingStates.LOG_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_weight)],
+			WorkoutLoggingStates.LOG_RPE: [CallbackQueryHandler(process_rpe, pattern="^rpe_")],
+			WorkoutLoggingStates.ADD_NOTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_notes)],
+			WorkoutLoggingStates.CONFIRMATION: [CallbackQueryHandler(handle_confirmation, pattern="^(add_another_exercise|finish_workout)$")],
+		},
+		fallbacks=[CallbackQueryHandler(cancel_logging, pattern="^cancel$")]
+	)
+	
+	application.add_handler(strength_conv_handler)
+	
+	# Обработчик истории тренировок
+	application.add_handler(CallbackQueryHandler(handle_workout_history, pattern="^workout_history$"))
+
+
 async def run() -> None:
 	setup_logging(settings.log_level)
 	logger = logging.getLogger("bot")
@@ -533,21 +788,28 @@ async def run() -> None:
 
 	app.add_handler(CommandHandler("start", start_command))
 	app.add_handler(CommandHandler("help", help_command))
-	app.add_handler(CallbackQueryHandler(handle_menu_callback))
 	app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 	app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-
-	logger.info("Bot is starting (polling)...")
+	app.add_handler(CallbackQueryHandler(handle_menu_callback))
+	
+	# Настройка обработчиков для внесения тренировок
+	# setup_workout_logging_handlers(app)  # Временно отключено, так как обработчики интегрированы в handle_menu_callback
+	
+	if settings.feature_reminder:
+		scheduler = AsyncIOScheduler()
+		setup_scheduler(scheduler, app.bot, settings.reminder_hour)
+		scheduler.start()
+	
+	logger.info("Bot started, polling for updates...")
 	await app.initialize()
 	await app.start()
+	await app.updater.start_polling()
+	
 	try:
-		await app.updater.start_polling()
-		await asyncio.Event().wait()
+		await asyncio.Event().wait()  # Ждем бесконечно
 	finally:
 		await app.stop()
 		await app.shutdown()
-		if scheduler:
-			scheduler.shutdown(wait=False)
 
 
 if __name__ == "__main__":
