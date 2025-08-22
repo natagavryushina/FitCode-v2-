@@ -27,6 +27,7 @@ from sqlalchemy import select, and_
 
 from bot.handlers.menu_handlers import handle_main_menu
 from bot.handlers.personal_cabinet_handler import handle_personal_cabinet
+from bot.handlers.workouts_handler import handle_workouts
 
 # In-memory store of last bot messages per chat for cleanup
 _ephemeral_messages: Dict[int, List[int]] = {}
@@ -397,6 +398,18 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Редактирование", "Скоро добавим форму редактирования профиля."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
 		elif data == "profile_stats":
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Статистика", "Скоро добавим подробную статистику."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]]))
+		elif data == "menu_workouts":
+			await handle_workouts(update, context)
+		elif data == "strength_workouts":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Силовые", "Подбор силовых тренировок скоро будет доступен."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
+		elif data == "cardio_workouts":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Кардио", "Подбор кардио скоро будет доступен."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
+		elif data == "workout_schedule":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Расписание", "Открывай раздел \"📅 Неделя\" в тренировки — доступна навигация по дням."), InlineKeyboardMarkup([[InlineKeyboardButton(text="📅 Неделя", callback_data="workouts_weekly_detail")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
+		elif data == "log_workout":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("Отметить", "Выберите день в разделе \"📅 Неделя\" и нажмите \"✅ Выполнено\"."), InlineKeyboardMarkup([[InlineKeyboardButton(text="📅 Неделя", callback_data="workouts_weekly_detail")],[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
+		elif data == "workout_history":
+			await _send_text_big(context, update.effective_chat.id, format_big_message("История", "Скоро добавим историю выполненных тренировок."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
 		elif data == "profile_sex":
 			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="Муж", callback_data="profile_sex_set_male"), InlineKeyboardButton(text="Жен", callback_data="profile_sex_set_female")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_profile")]])
 			await _cleanup_chat_messages(context, update.effective_chat.id)
@@ -473,101 +486,6 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 					else:
 						selected.add(val)
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Инвентарь", "Отметь доступный инвентарь"), _toggle_list_kb("eq_", EQUIPMENT_CHOICES, selected))
-		elif data == "menu_workouts":
-			# Ensure plan and show today
-			user = None
-			if settings.feature_db:
-				with session_scope() as s:
-					user = repo.get_or_create_user(
-						s,
-						tg_user_id=str(update.effective_user.id),
-						username=update.effective_user.username,
-						first_name=update.effective_user.first_name,
-						last_name=update.effective_user.last_name,
-					)
-			if not user:
-				await help_command(update, context)
-				return
-			plan_id, today_idx = await ensure_week_workouts(user)
-			with session_scope() as s:
-				day = repo.get_workout_day(s, plan_id, today_idx)
-				title = day.title if day else f"День {today_idx+1}"
-				body = day.content_text if day else "Сегодня отдых/мобилити 20 мин"
-			text = format_big_message(f"Тренировки — {title}", html.escape(body))
-			await _cleanup_chat_messages(context, update.effective_chat.id)
-			img = get_image_url("workout")
-			if img:
-				ok = await _send_photo_safe(context, update.effective_chat.id, img, text if len(text) <= 1000 else "Тренировки", _days_kb("workout_day_"))
-				if ok and len(text) > 1000:
-					await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
-					return
-			await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
-		elif data.startswith("workout_day_"):
-			idx = int(data.split("_")[-1])
-			user = None
-			with session_scope() as s:
-				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-			plan_id, _ = await ensure_week_workouts(user)
-			with session_scope() as s2:
-				day = repo.get_workout_day(s2, plan_id, idx)
-				title = day.title if day else f"День {idx+1}"
-				body = day.content_text if day else "Отдых/мобилити"
-			text = format_big_message(f"Тренировки — {title}", html.escape(body))
-			await _cleanup_chat_messages(context, update.effective_chat.id)
-			await _send_text_big(context, update.effective_chat.id, text, _workout_day_kb(plan_id, idx))
-		elif data == "workouts_weekly_detail":
-			# Show list of 7 days with quick nav + actions
-			with session_scope() as s:
-				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-			plan_id, today_idx = await ensure_week_workouts(user)
-			rows: List[List[InlineKeyboardButton]] = []
-			row: List[InlineKeyboardButton] = []
-			for i in range(7):
-				label = f"Д{i+1}"
-				row.append(InlineKeyboardButton(text=label, callback_data=f"workout_day_{i}"))
-				if len(row) == 4:
-					rows.append(row); row = []
-			if row:
-				rows.append(row)
-			actions = [
-				InlineKeyboardButton(text="📊 Статистика", callback_data="weekly_stats"),
-				InlineKeyboardButton(text="🔄 Регенерировать", callback_data="weekly_regenerate"),
-			]
-			rows.append(actions)
-			rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")])
-			kb = InlineKeyboardMarkup(rows)
-			await _cleanup_chat_messages(context, update.effective_chat.id)
-			await _send_text_big(context, update.effective_chat.id, format_big_message("Недельный план", "Выберите день или действие"), kb)
-		elif data == "weekly_stats":
-			with session_scope() as s:
-				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-				# Minimal stats: count of completed days for active plan
-				from sqlalchemy import func
-				from db.models import WorkoutCompletion, UserWorkoutPlan
-				plan = s.execute(select(UserWorkoutPlan).where(and_(UserWorkoutPlan.user_id == user.id, UserWorkoutPlan.is_active == 1)).limit(1)).scalar_one_or_none()
-				completed = 0
-				if plan:
-					completed = s.execute(select(func.count(WorkoutCompletion.id)).where(and_(WorkoutCompletion.user_id == user.id, WorkoutCompletion.plan_id == plan.id))).scalar() or 0
-			await _cleanup_chat_messages(context, update.effective_chat.id)
-			await _send_text_big(context, update.effective_chat.id, format_big_message("Статистика недели", f"Выполнено дней: {completed} из 7"), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="workouts_weekly_detail")]]))
-		elif data == "weekly_regenerate":
-			with session_scope() as s:
-				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-			from services.planner import regenerate_week_workouts
-			plan_id = await regenerate_week_workouts(user)
-			await _cleanup_chat_messages(context, update.effective_chat.id)
-			await _send_text_big(context, update.effective_chat.id, format_big_message("Готово", "Недельный план перегенерирован"), InlineKeyboardMarkup([[InlineKeyboardButton(text="📅 Открыть план", callback_data="workouts_weekly_detail")],[InlineKeyboardButton(text="⬅️ В меню", callback_data="menu_root")]]))
-		elif data.startswith("workout_done_"):
-			_, _, plan_id_str, idx_str = data.split("_")
-			plan_id = int(plan_id_str)
-			idx = int(idx_str)
-			with session_scope() as s:
-				user = repo.get_or_create_user(s, str(update.effective_user.id), update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
-				repo.mark_workout_completed(s, user.id, plan_id, idx)
-				repo.add_loyalty_points(s, user.id, 10)
-			text = format_big_message("Отлично!", f"День {idx+1} отмечен как выполненный. +10 баллов 🎉")
-			await _cleanup_chat_messages(context, update.effective_chat.id)
-			await _send_text_big(context, update.effective_chat.id, text, _days_kb("workout_day_"))
 		elif data == "menu_week":
 			user = None
 			if settings.feature_db:
