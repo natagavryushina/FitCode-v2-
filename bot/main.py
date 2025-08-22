@@ -319,6 +319,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 		return
 	
+	# Проверяем, ожидается ли ввод длительности силовой тренировки
+	if context.user_data.get('logging_workout', {}).get('step') == 'workout_duration':
+		from handlers.workout_logging_handlers import process_workout_duration
+		await process_workout_duration(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
 	await _reply_with_llm(update, context, user_text, title="Ответ готов ✨")
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -559,6 +566,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		elif data == "finish_workout":
 			from handlers.workout_logging_handlers import finish_workout
 			await finish_workout(update, context)
+		elif data == "add_another_exercise":
+			from handlers.workout_logging_handlers import add_another_exercise
+			await add_another_exercise(update, context)
 		elif data == "workouts":
 			# Показываем план тренировок на неделю
 			user = None

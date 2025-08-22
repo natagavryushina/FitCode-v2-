@@ -194,12 +194,34 @@ async def process_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 	if update.message and update.message.text:
 		context.user_data['exercise_notes'] = update.message.text
 	
+	# Собираем данные упражнения
+	exercise_data = {
+		'name': context.user_data.get('current_exercise', 'Упражнение'),
+		'sets': context.user_data.get('sets_reps', ''),
+		'reps': context.user_data.get('sets_reps', ''),
+		'weight': context.user_data.get('weight', 0),
+		'rpe': context.user_data.get('rpe'),
+		'notes': context.user_data.get('exercise_notes', '')
+	}
+	
+	# Инициализируем workout_data если его нет
+	if 'workout_data' not in context.user_data:
+		context.user_data['workout_data'] = {
+			'type': 'Силовая тренировка',
+			'exercises': [],
+			'duration': 0,
+			'notes': ''
+		}
+	
+	# Добавляем упражнение к тренировке
+	context.user_data['workout_data']['exercises'].append(exercise_data)
+	
 	# Показываем итоговую информацию по упражнению
-	exercise_name = context.user_data.get('current_exercise', 'Упражнение')
-	sets_reps = context.user_data.get('sets_reps', '')
-	weight = context.user_data.get('weight', 0)
-	rpe = context.user_data.get('rpe', 'Не указано')
-	notes = context.user_data.get('exercise_notes', 'Без заметок')
+	exercise_name = exercise_data['name']
+	sets_reps = exercise_data['sets']
+	weight = exercise_data['weight']
+	rpe = exercise_data['rpe'] or 'Не указано'
+	notes = exercise_data['notes'] or 'Без заметок'
 	
 	text = f"""
 ✅ *Упражнение добавлено!*
@@ -298,24 +320,20 @@ async def finish_workout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 	"""Завершение тренировки"""
 	query = update.callback_query
 	
-	# TODO: Сохранение тренировки в базу данных
-	
+	# Запрашиваем длительность тренировки
 	text = """
-🎉 *Тренировка завершена!*
+⏱ *Длительность тренировки*
 
-Ваша тренировка успешно сохранена.
+Сколько минут длилась вся тренировка?
 
-📊 *Статистика:*
-• Количество упражнений: {count}
-• Общий объем: {volume} кг
-• Время: {duration} мин
-
-+10 баллов за выполненную тренировку! 🎁
+💡 *Примеры:*
+• 45 (45 минут)
+• 60 (1 час)
+• 90 (1.5 часа)
 """
 	
 	keyboard = [
-		[InlineKeyboardButton("📊 Посмотреть статистику", callback_data="workout_stats")],
-		[InlineKeyboardButton("🏠 В главное меню", callback_data="menu_root")]
+		[InlineKeyboardButton("↩️ Назад", callback_data="back_to_exercise")]
 	]
 	
 	reply_markup = InlineKeyboardMarkup(keyboard)
@@ -326,7 +344,9 @@ async def finish_workout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 		parse_mode='Markdown'
 	)
 	
-	return WorkoutLoggingStates.CONFIRMATION
+	# Устанавливаем состояние ожидания длительности
+	context.user_data.setdefault('logging_workout', {})['step'] = 'workout_duration'
+	return WorkoutLoggingStates.LOG_DURATION
 
 # --- Кардио ---
 async def start_cardio_logging(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -448,3 +468,140 @@ async def process_cardio_duration(update: Update, context: ContextTypes.DEFAULT_
 	)
 	await track_message(context, message.message_id)
 	return WorkoutLoggingStates.CONFIRMATION
+
+async def process_workout_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Обработка введенной длительности тренировки и сохранение"""
+	try:
+		duration = int(float(update.message.text))
+		if duration <= 0 or duration > 600:
+			raise ValueError
+	except Exception:
+		await update.message.reply_text("Введите длительность в минутах, например: 45")
+		return WorkoutLoggingStates.LOG_DURATION
+	
+	# Сохраняем длительность в workout_data
+	context.user_data.setdefault('workout_data', {})['duration'] = duration
+	
+	# Сохраняем тренировку в базу данных
+	return await save_completed_workout(update, context)
+
+async def save_completed_workout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Сохранение завершенной тренировки в базу данных"""
+	from db import repo
+	from db.database import session_scope
+	from datetime import datetime
+	
+	user_id_str = str(update.effective_user.id)
+	workout_data = context.user_data.get('workout_data', {})
+	
+	# Сохраняем тренировку в базу
+	with session_scope() as s:
+		user = repo.get_or_create_user(s, user_id_str, update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+		
+		workout = repo.create_completed_workout(
+			session=s,
+			user_id=user.id,
+			plan_id=workout_data.get('plan_id'),
+			workout_type=workout_data.get('type'),
+			duration=workout_data.get('duration'),
+			notes=workout_data.get('notes')
+		)
+		
+		# Сохраняем упражнения
+		for exercise in workout_data.get('exercises', []):
+			repo.add_completed_exercise(
+				session=s,
+				workout_id=workout.id,
+				exercise_name=exercise['name'],
+				sets=exercise['sets'],
+				reps=exercise['reps'],
+				weight=exercise['weight'],
+				rpe=exercise.get('rpe'),
+				notes=exercise.get('notes')
+			)
+		
+		# Обновляем общий объем тренировки
+		repo.update_workout_volume(s, workout.id)
+		
+		# Добавляем баллы лояльности
+		repo.add_loyalty_points(s, user.id, 10)
+	
+	# Очищаем временные данные
+	context.user_data.pop('workout_data', None)
+	context.user_data.pop('current_exercise', None)
+	context.user_data.pop('logging_workout', None)
+	
+	return await show_workout_summary(update, context, workout)
+
+async def show_workout_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, workout):
+	"""Показать сводку по завершенной тренировке"""
+	text = f"""
+✅ *Тренировка сохранена!*
+
+🏋️‍♂️ *Тип:* {workout.workout_type}
+⏱ *Длительность:* {workout.duration} мин
+📊 *Общий объем:* {workout.total_volume or 0} кг
+⭐ *Оценка:* {workout.rating or 'Не указана'}/5
+
+*Отличная работа! 💪*
+"""
+	
+	keyboard = [
+		[InlineKeyboardButton("📊 Посмотреть статистику", callback_data="view_stats")],
+		[InlineKeyboardButton("📅 Запланировать следующую", callback_data="schedule_next")],
+		[InlineKeyboardButton("🏠 В главное меню", callback_data="menu_root")]
+	]
+	
+	reply_markup = InlineKeyboardMarkup(keyboard)
+	
+	if update.callback_query:
+		await update.callback_query.edit_message_text(
+			text=text,
+			reply_markup=reply_markup,
+			parse_mode='Markdown'
+		)
+	else:
+		message = await context.bot.send_message(
+			chat_id=update.effective_chat.id,
+			text=text,
+			reply_markup=reply_markup,
+			parse_mode='Markdown'
+		)
+		await track_message(context, message.message_id)
+	
+	return WorkoutLoggingStates.CONFIRMATION
+
+async def add_another_exercise(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Добавление еще одного упражнения к тренировке"""
+	query = update.callback_query
+	
+	# Очищаем данные текущего упражнения, но оставляем workout_data
+	context.user_data.pop('current_exercise', None)
+	context.user_data.pop('sets_reps', None)
+	context.user_data.pop('weight', None)
+	context.user_data.pop('rpe', None)
+	context.user_data.pop('exercise_notes', None)
+	
+	# Возвращаемся к выбору упражнения
+	text = "🏋️‍♂️ *Внесение силовой тренировки*\n\nВыберите упражнение:"
+	
+	user_exercises = await get_recent_exercises(update.effective_user.id)
+	
+	keyboard = []
+	for exercise in user_exercises[:5]:
+		keyboard.append([InlineKeyboardButton(exercise, callback_data=f"select_exercise:{exercise}")])
+	
+	keyboard.extend([
+		[InlineKeyboardButton("➕ Добавить новое упражнение", callback_data="add_new_exercise")],
+		[InlineKeyboardButton("✅ Завершить тренировку", callback_data="finish_workout")]
+	])
+	
+	reply_markup = InlineKeyboardMarkup(keyboard)
+	
+	await query.edit_message_text(
+		text=text,
+		reply_markup=reply_markup,
+		parse_mode='Markdown'
+	)
+	
+	return WorkoutLoggingStates.SELECT_EXERCISE
