@@ -4,3 +4,15 @@ nohup: ignoring input
 2025-08-22 09:50:46 | INFO | bot | Bot is starting (polling)...
 2025-08-22 09:50:47 | INFO | apscheduler.scheduler | Scheduler started
 2025-08-22 09:50:47 | INFO | telegram.ext.Application | Application started
+2025-08-22 09:52:10 | ERROR | cb | Callback handling failed: name '_profile_kb' is not defined
+Traceback (most recent call last):
+  File "/workspace/bot/main.py", line 302, in handle_menu_callback
+    await _send_text_big(context, update.effective_chat.id, text, _profile_kb())
+                                                                  ^^^^^^^^^^^
+NameError: name '_profile_kb' is not defined
+2025-08-22 09:52:21 | ERROR | cb | Callback handling failed: name '_profile_kb' is not defined
+Traceback (most recent call last):
+  File "/workspace/bot/main.py", line 302, in handle_menu_callback
+    await _send_text_big(context, update.effective_chat.id, text, _profile_kb())
+                                                                  ^^^^^^^^^^^
+NameError: name '_profile_kb' is not defined
