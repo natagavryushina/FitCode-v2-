@@ -284,6 +284,34 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 		return
 	
+	# Проверяем, ожидается ли название упражнения
+	if context.user_data.get('waiting_for_exercise_name', False):
+		from handlers.workout_logging_handlers import process_new_exercise_name
+		await process_new_exercise_name(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод подходов и повторений
+	if context.user_data.get('logging_workout', {}).get('step') == 'sets_reps':
+		from handlers.workout_logging_handlers import process_sets_reps
+		await process_sets_reps(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод веса
+	if context.user_data.get('logging_workout', {}).get('step') == 'weight':
+		from handlers.workout_logging_handlers import process_weight
+		await process_weight(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
+	# Проверяем, ожидается ли ввод заметок
+	if context.user_data.get('logging_workout', {}).get('step') == 'notes':
+		from handlers.workout_logging_handlers import process_notes
+		await process_notes(update, context)
+		await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
+		return
+	
 	await _reply_with_llm(update, context, user_text, title="Ответ готов ✨")
 	await _safe_delete_message(context, update.effective_chat.id, update.message.message_id)
 
@@ -492,8 +520,8 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			from handlers.workout_logging import handle_log_workout
 			await handle_log_workout(update, context)
 		elif data == "log_strength":
-			from handlers.workout_logging import handle_log_strength_workout
-			await handle_log_strength_workout(update, context)
+			from handlers.workout_logging_handlers import start_strength_logging
+			await start_strength_logging(update, context)
 		elif data == "log_cardio":
 			from handlers.workout_logging import handle_log_cardio_workout
 			await handle_log_cardio_workout(update, context)
@@ -506,6 +534,21 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		elif data == "log_from_plan":
 			from handlers.workout_logging import handle_log_from_plan
 			await handle_log_from_plan(update, context)
+		elif data.startswith("select_exercise:"):
+			from handlers.workout_logging_handlers import log_sets_reps
+			await log_sets_reps(update, context)
+		elif data == "add_new_exercise":
+			from handlers.workout_logging_handlers import add_new_exercise
+			await add_new_exercise(update, context)
+		elif data.startswith("rpe_"):
+			from handlers.workout_logging_handlers import process_rpe
+			await process_rpe(update, context)
+		elif data == "notes_skip":
+			from handlers.workout_logging_handlers import process_notes
+			await process_notes(update, context)
+		elif data == "finish_workout":
+			from handlers.workout_logging_handlers import finish_workout
+			await finish_workout(update, context)
 		elif data == "workouts":
 			# Показываем план тренировок на неделю
 			user = None
