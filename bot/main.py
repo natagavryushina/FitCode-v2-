@@ -569,6 +569,15 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 		elif data == "add_another_exercise":
 			from handlers.workout_logging_handlers import add_another_exercise
 			await add_another_exercise(update, context)
+		elif data == "workout_history":
+			from handlers.workout_logging_handlers import handle_workout_history
+			await handle_workout_history(update, context)
+		elif data == "progress_chart":
+			from handlers.workout_logging_handlers import handle_progress_chart
+			await handle_progress_chart(update, context)
+		elif data == "detailed_stats":
+			from handlers.workout_logging_handlers import handle_detailed_stats
+			await handle_detailed_stats(update, context)
 		elif data == "workouts":
 			# Показываем план тренировок на неделю
 			user = None

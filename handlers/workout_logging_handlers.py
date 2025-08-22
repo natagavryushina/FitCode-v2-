@@ -605,3 +605,151 @@ async def add_another_exercise(update: Update, context: ContextTypes.DEFAULT_TYP
 	)
 	
 	return WorkoutLoggingStates.SELECT_EXERCISE
+
+async def handle_workout_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Показать историю тренировок"""
+	await cleanup_previous_messages(update, context)
+	
+	from db import repo
+	from db.database import session_scope
+	
+	user_id_str = str(update.effective_user.id)
+	
+	with session_scope() as s:
+		user = repo.get_or_create_user(s, user_id_str, update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+		workouts = repo.get_user_workout_history(s, user.id, limit=10)
+	
+	if not workouts:
+		text = "📊 *История тренировок*\n\nУ вас пока нет завершенных тренировок."
+	else:
+		text = "📊 *История ваших тренировок*\n\n"
+		for i, workout in enumerate(workouts):
+			# Парсим дату из строки ISO
+			from datetime import datetime
+			try:
+				workout_date = datetime.fromisoformat(workout.workout_date)
+				date_str = workout_date.strftime('%d.%m.%Y')
+			except:
+				date_str = workout.workout_date
+			
+			text += f"*{i+1}. {workout.workout_type}* - {date_str}\n"
+			text += f"   ⏱ {workout.duration} мин, 📊 {workout.total_volume or 0} кг\n\n"
+	
+	keyboard = [
+		[InlineKeyboardButton("📈 График прогресса", callback_data="progress_chart")],
+		[InlineKeyboardButton("📋 Детальная статистика", callback_data="detailed_stats")],
+		[InlineKeyboardButton("↩️ Назад к тренировкам", callback_data="menu_workouts")]
+	]
+	
+	reply_markup = InlineKeyboardMarkup(keyboard)
+	
+	message = await context.bot.send_message(
+		chat_id=update.effective_chat.id,
+		text=text,
+		reply_markup=reply_markup,
+		parse_mode='Markdown'
+	)
+	
+	await track_message(context, message.message_id)
+
+async def handle_progress_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Показать график прогресса"""
+	await cleanup_previous_messages(update, context)
+	
+	text = """
+📈 *График прогресса*
+
+Функция находится в разработке.
+
+В будущем здесь будет:
+• График изменения веса по упражнениям
+• Прогресс по объему тренировок
+• Тренды и рекомендации
+"""
+	
+	keyboard = [
+		[InlineKeyboardButton("↩️ К истории тренировок", callback_data="workout_history")],
+		[InlineKeyboardButton("🏠 В главное меню", callback_data="menu_root")]
+	]
+	
+	reply_markup = InlineKeyboardMarkup(keyboard)
+	
+	message = await context.bot.send_message(
+		chat_id=update.effective_chat.id,
+		text=text,
+		reply_markup=reply_markup,
+		parse_mode='Markdown'
+	)
+	
+	await track_message(context, message.message_id)
+
+async def handle_detailed_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Показать детальную статистику"""
+	await cleanup_previous_messages(update, context)
+	
+	from db import repo
+	from db.database import session_scope
+	
+	user_id_str = str(update.effective_user.id)
+	
+	with session_scope() as s:
+		user = repo.get_or_create_user(s, user_id_str, update.effective_user.username, update.effective_user.first_name, update.effective_user.last_name)
+		workouts = repo.get_user_workout_history(s, user.id, limit=30)  # Последние 30 тренировок
+	
+	if not workouts:
+		text = "📋 *Детальная статистика*\n\nУ вас пока нет данных для анализа."
+	else:
+		# Подсчитываем статистику
+		total_workouts = len(workouts)
+		total_duration = sum(w.duration or 0 for w in workouts)
+		total_volume = sum(w.total_volume or 0 for w in workouts)
+		avg_duration = total_duration / total_workouts if total_workouts > 0 else 0
+		avg_volume = total_volume / total_workouts if total_workouts > 0 else 0
+		
+		# Группируем по типам тренировок
+		workout_types = {}
+		for w in workouts:
+			workout_type = w.workout_type or "Неизвестно"
+			if workout_type not in workout_types:
+				workout_types[workout_type] = 0
+			workout_types[workout_type] += 1
+		
+		text = f"""
+📋 *Детальная статистика*
+
+📊 *Общие показатели:*
+• Всего тренировок: {total_workouts}
+• Общее время: {total_duration} мин
+• Общий объем: {total_volume:.1f} кг
+• Средняя длительность: {avg_duration:.1f} мин
+• Средний объем: {avg_volume:.1f} кг
+
+🏋️‍♂️ *По типам тренировок:*
+"""
+		for workout_type, count in workout_types.items():
+			text += f"• {workout_type}: {count} тренировок\n"
+		
+		text += "\n💡 *Рекомендации:*\n"
+		if total_workouts < 5:
+			text += "• Продолжайте тренироваться регулярно\n"
+		elif avg_duration < 30:
+			text += "• Попробуйте увеличить длительность тренировок\n"
+		else:
+			text += "• Отличные результаты! Держите темп\n"
+	
+	keyboard = [
+		[InlineKeyboardButton("📈 График прогресса", callback_data="progress_chart")],
+		[InlineKeyboardButton("↩️ К истории тренировок", callback_data="workout_history")],
+		[InlineKeyboardButton("🏠 В главное меню", callback_data="menu_root")]
+	]
+	
+	reply_markup = InlineKeyboardMarkup(keyboard)
+	
+	message = await context.bot.send_message(
+		chat_id=update.effective_chat.id,
+		text=text,
+		reply_markup=reply_markup,
+		parse_mode='Markdown'
+	)
+	
+	await track_message(context, message.message_id)
