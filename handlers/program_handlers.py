@@ -107,18 +107,103 @@ async def show_programs_filter(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     
     text = """
-🔍 *Фильтр программ по целям*
+🔍 *Фильтр программ*
 
-Выберите цель, чтобы увидеть подходящие программы:
+Выберите критерии для подбора программы:
 """
     
     keyboard = [
-        [InlineKeyboardButton("💪 Набор мышечной массы", callback_data="filter_muscle_gain")],
-        [InlineKeyboardButton("🔥 Похудение", callback_data="filter_fat_loss")],
-        [InlineKeyboardButton("💥 Увеличение силы", callback_data="filter_strength")],
-        [InlineKeyboardButton("🏃‍♂️ Выносливость", callback_data="filter_endurance")],
-        [InlineKeyboardButton("🧘‍♀️ Тонус и гибкость", callback_data="filter_mobility")],
-        [InlineKeyboardButton("↩️ Назад", callback_data="training_programs")]
+        [InlineKeyboardButton("🎯 По цели", callback_data="filter_goal")],
+        [InlineKeyboardButton("📊 По уровню", callback_data="filter_level")],
+        [InlineKeyboardButton("⏱ По длительности", callback_data="filter_duration")],
+        [InlineKeyboardButton("🏋️ По оборудованию", callback_data="filter_equipment")],
+        [InlineKeyboardButton("↩️ Назад к программам", callback_data="training_programs")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def filter_programs_by_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Фильтр программ по цели"""
+    query = update.callback_query
+    
+    text = "🎯 *Выберите цель:*"
+    
+    keyboard = [
+        [InlineKeyboardButton("💪 Набор массы", callback_data="filter_goal_mass")],
+        [InlineKeyboardButton("🔥 Похудение", callback_data="filter_goal_weightloss")],
+        [InlineKeyboardButton("⚡️ Поддержание тонуса", callback_data="filter_goal_tonus")],
+        [InlineKeyboardButton("🏃‍♂️ Выносливость", callback_data="filter_goal_endurance")],
+        [InlineKeyboardButton("↩️ Назад к фильтрам", callback_data="programs_filter")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def filter_programs_by_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Фильтр программ по уровню сложности"""
+    query = update.callback_query
+    
+    text = "📊 *Выберите уровень сложности:*"
+    
+    keyboard = [
+        [InlineKeyboardButton("🟢 Начинающий", callback_data="filter_level_beginner")],
+        [InlineKeyboardButton("🟡 Средний", callback_data="filter_level_intermediate")],
+        [InlineKeyboardButton("🔴 Продвинутый", callback_data="filter_level_advanced")],
+        [InlineKeyboardButton("↩️ Назад к фильтрам", callback_data="programs_filter")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def filter_programs_by_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Фильтр программ по длительности"""
+    query = update.callback_query
+    
+    text = "⏱ *Выберите длительность программы:*"
+    
+    keyboard = [
+        [InlineKeyboardButton("📅 4-6 недель", callback_data="filter_duration_short")],
+        [InlineKeyboardButton("📅 8-10 недель", callback_data="filter_duration_medium")],
+        [InlineKeyboardButton("📅 12+ недель", callback_data="filter_duration_long")],
+        [InlineKeyboardButton("↩️ Назад к фильтрам", callback_data="programs_filter")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def filter_programs_by_equipment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Фильтр программ по оборудованию"""
+    query = update.callback_query
+    
+    text = "🏋️ *Выберите доступное оборудование:*"
+    
+    keyboard = [
+        [InlineKeyboardButton("🚶‍♂️ Без оборудования", callback_data="filter_equipment_none")],
+        [InlineKeyboardButton("🏋️ Гантели", callback_data="filter_equipment_dumbbells")],
+        [InlineKeyboardButton("🏋️ Штанга + скамья", callback_data="filter_equipment_barbell")],
+        [InlineKeyboardButton("🏋️ Полный зал", callback_data="filter_equipment_full")],
+        [InlineKeyboardButton("↩️ Назад к фильтрам", callback_data="programs_filter")]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -130,52 +215,123 @@ async def show_programs_filter(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 async def show_filtered_programs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать программы по выбранной цели"""
+    """Показать программы по выбранным критериям"""
     query = update.callback_query
-    goal = query.data.split("_")[1]
+    filter_data = query.data.split("_")
     
-    # Карта целей
-    goal_map = {
-        "muscle": "muscle_gain",
-        "fat": "fat_loss", 
-        "strength": "strength",
-        "endurance": "endurance",
-        "mobility": "mobility"
-    }
+    if len(filter_data) < 3:
+        await query.answer("Неверный формат фильтра")
+        return
     
-    goal_name_map = {
-        "muscle": "Набор мышечной массы",
-        "fat": "Похудение",
-        "strength": "Увеличение силы", 
-        "endurance": "Выносливость",
-        "mobility": "Тонус и гибкость"
-    }
-    
-    mapped_goal = goal_map.get(goal, goal)
-    goal_display = goal_name_map.get(goal, goal)
+    filter_type = filter_data[1]
+    filter_value = filter_data[2]
     
     session = SessionLocal()
-    programs = get_training_programs_by_goal(session, mapped_goal)
-    session.close()
     
-    text = f"🎯 *Программы для цели: {goal_display}*\n\n"
+    try:
+        if filter_type == "goal":
+            # Маппинг целей
+            goal_mapping = {
+                "mass": "muscle_gain",
+                "weightloss": "fat_loss", 
+                "tonus": "strength",
+                "endurance": "endurance"
+            }
+            mapped_goal = goal_mapping.get(filter_value, filter_value)
+            programs = get_training_programs_by_goal(session, mapped_goal)
+            filter_name = {
+                "mass": "Набор массы",
+                "weightloss": "Похудение",
+                "tonus": "Поддержание тонуса",
+                "endurance": "Выносливость"
+            }.get(filter_value, filter_value)
+            
+        elif filter_type == "level":
+            # Фильтр по уровню
+            programs = [p for p in get_all_training_programs(session) if p.level == filter_value]
+            filter_name = {
+                "beginner": "Начинающий",
+                "intermediate": "Средний", 
+                "advanced": "Продвинутый"
+            }.get(filter_value, filter_value)
+            
+        elif filter_type == "duration":
+            # Фильтр по длительности
+            all_programs = get_all_training_programs(session)
+            if filter_value == "short":
+                programs = [p for p in all_programs if p.duration_weeks <= 6]
+                filter_name = "4-6 недель"
+            elif filter_value == "medium":
+                programs = [p for p in all_programs if 7 <= p.duration_weeks <= 10]
+                filter_name = "8-10 недель"
+            elif filter_value == "long":
+                programs = [p for p in all_programs if p.duration_weeks >= 11]
+                filter_name = "12+ недель"
+            else:
+                programs = []
+                filter_name = "Неизвестная длительность"
+                
+        elif filter_type == "equipment":
+            # Фильтр по оборудованию
+            all_programs = get_all_training_programs(session)
+            if filter_value == "none":
+                programs = [p for p in all_programs if "bodyweight_only" in p.equipment]
+                filter_name = "Без оборудования"
+            elif filter_value == "dumbbells":
+                programs = [p for p in all_programs if "dumbbells" in p.equipment]
+                filter_name = "Гантели"
+            elif filter_value == "barbell":
+                programs = [p for p in all_programs if "barbell" in p.equipment or "bench" in p.equipment]
+                filter_name = "Штанга + скамья"
+            elif filter_value == "full":
+                programs = [p for p in all_programs if "barbell" in p.equipment and "bench" in p.equipment]
+                filter_name = "Полный зал"
+            else:
+                programs = []
+                filter_name = "Неизвестное оборудование"
+        else:
+            programs = []
+            filter_name = "Неизвестный фильтр"
+            
+    finally:
+        session.close()
+    
+    text = f"🎯 *Программы для: {filter_name}*\n\n"
     
     if not programs:
-        text += "К сожалению, программы для этой цели пока недоступны."
-        keyboard = [[InlineKeyboardButton("↩️ Назад", callback_data="programs_filter")]]
-    else:
-        text += "Выберите подходящую программу:\n\n"
-        keyboard = []
+        text += "К сожалению, программы для выбранных критериев пока недоступны.\n\n"
+        text += "💡 *Рекомендации:*\n"
+        text += "• Попробуйте другие критерии\n"
+        text += "• Посмотрите все доступные программы\n"
+        text += "• Обратитесь к персональному тренеру"
         
-        for program in programs:
+        keyboard = [
+            [InlineKeyboardButton("🔍 Другие фильтры", callback_data="programs_filter")],
+            [InlineKeyboardButton("📚 Все программы", callback_data="training_programs")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
+        ]
+    else:
+        text += f"Найдено {len(programs)} программ:\n\n"
+        
+        for i, program in enumerate(programs[:5], 1):  # Показываем первые 5
+            text += f"{i}. **{program.name}**\n"
+            text += f"   🎯 {program.goal} • 📊 {program.level}\n"
+            text += f"   ⏱ {program.duration_weeks} недель • 📅 {program.days_per_week} дня/неделю\n\n"
+        
+        if len(programs) > 5:
+            text += f"... и еще {len(programs) - 5} программ\n\n"
+        
+        keyboard = []
+        for program in programs[:5]:
             keyboard.append([InlineKeyboardButton(
-                f"🏋️ {program.name} ({program.level})",
+                f"🏋️ {program.name}",
                 callback_data=f"program_{program.id}"
             )])
         
         keyboard.extend([
-            [InlineKeyboardButton("🔍 Другие цели", callback_data="programs_filter")],
-            [InlineKeyboardButton("↩️ Все программы", callback_data="training_programs")]
+            [InlineKeyboardButton("🔍 Другие фильтры", callback_data="programs_filter")],
+            [InlineKeyboardButton("📚 Все программы", callback_data="training_programs")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
         ])
     
     reply_markup = InlineKeyboardMarkup(keyboard)

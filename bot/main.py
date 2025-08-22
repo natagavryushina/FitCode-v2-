@@ -29,7 +29,9 @@ from handlers.program_handlers import (
     handle_training_programs, show_program_details, show_programs_filter, 
     show_filtered_programs, show_my_programs, view_program_plan, 
     start_program_confirmation, confirm_start_program, show_current_workout, 
-    show_program_progress, complete_program_workout_handler, ProgramStates
+    show_program_progress, complete_program_workout_handler, ProgramStates,
+    filter_programs_by_goal, filter_programs_by_level, filter_programs_by_duration,
+    filter_programs_by_equipment
 )
 
 # Constants
@@ -594,6 +596,14 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await show_program_details(update, context)
 		elif data == "programs_filter":
 			await show_programs_filter(update, context)
+		elif data == "filter_goal":
+			await filter_programs_by_goal(update, context)
+		elif data == "filter_level":
+			await filter_programs_by_level(update, context)
+		elif data == "filter_duration":
+			await filter_programs_by_duration(update, context)
+		elif data == "filter_equipment":
+			await filter_programs_by_equipment(update, context)
 		elif data.startswith("filter_"):
 			await show_filtered_programs(update, context)
 		elif data == "my_programs":
