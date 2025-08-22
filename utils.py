@@ -64,3 +64,37 @@ def register_reminder_commands(app: Application) -> None:
     app.add_handler(CommandHandler("remind_water", cmd_remind_water))
     app.add_handler(CommandHandler("remind_train", cmd_remind_train))
     app.add_handler(CommandHandler("remind_clear", cmd_remind_clear))
+
+
+# --------- Formatters ---------
+
+def _fmt_weight(kg: float | None) -> str:
+    return f"{kg:g} кг" if kg is not None else "—"
+
+
+def format_daily_workout_message(workout) -> str:
+    # Lazy imports to avoid circulars
+    from database import ExerciseSession
+    message = f"🏋️‍♂️ *Тренировка на сегодня* ({getattr(workout, 'muscle_group', '')})\n\n"
+    sessions = getattr(workout, "exercise_sessions", [])
+    for exercise in sessions:
+        name = getattr(getattr(exercise, "exercise", None), "name", "Упражнение")
+        message += f"*{name}*\n"
+        message += f"• Подходы: {exercise.target_sets or 0}\n"
+        message += f"• Повторы: {exercise.target_reps or '-'}\n"
+        message += f"• Вес: {_fmt_weight(exercise.target_weight)}\n"
+        message += f"• Отдых: {exercise.rest_time_seconds or 0} сек\n"
+        message += f"• RPE: {exercise.rpe or 0}/10\n\n"
+    message += f"⏱ Общее время: {int(getattr(workout, 'duration_minutes', 0) or 0)} мин\n"
+    message += f"📊 Общий объем: {getattr(workout, 'total_volume', 0) or 0:g} кг\n"
+    return message
+
+
+def format_weekly_schedule_message(plan) -> str:
+    message = "📅 *План тренировок на неделю*\n\n"
+    days = getattr(plan, "daily_workouts", []) or []
+    for day in days:
+        message += f"*День {day.day_number}:* {day.muscle_group}\n"
+        message += f"Тип: {day.workout_type}\n"
+        message += f"Длительность: {int(getattr(day, 'duration_minutes', 0) or 0)} мин\n\n"
+    return message
