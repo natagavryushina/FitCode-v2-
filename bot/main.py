@@ -560,7 +560,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 			await _send_text_big(context, update.effective_chat.id, text, kb)
 		elif data == "menu_support":
 			await _cleanup_chat_messages(context, update.effective_chat.id)
-			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="📨 Написать в поддержку", callback_data="support_contact")],[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]])
+			kb = InlineKeyboardMarkup([[InlineKeyboardButton(text="📨 Написать в поддержку", callback_data="ask_question")],[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]])
 			await _send_text_big(context, update.effective_chat.id, format_big_message("Поддержка", "Опиши проблему — я помогу или передам оператору."), kb)
 		elif data == "support_contact":
 			await _cleanup_chat_messages(context, update.effective_chat.id)
@@ -697,6 +697,92 @@ async def _send_photo_safe(context: ContextTypes.DEFAULT_TYPE, chat_id: int, pho
 		return False
 
 
+async def handle_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Handle main menu callback"""
+	await start_command(update, context)
+
+
+async def handle_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Handle support menu"""
+	await _cleanup_chat_messages(context, update.effective_chat.id)
+	kb = InlineKeyboardMarkup([
+		[InlineKeyboardButton(text="📨 Написать в поддержку", callback_data="ask_question")],
+		[InlineKeyboardButton(text="❓ FAQ", callback_data="faq")],
+		[InlineKeyboardButton(text="📞 Связаться", callback_data="contact_support")],
+		[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_root")]
+	])
+	await _send_text_big(context, update.effective_chat.id, format_big_message("Поддержка", "Выберите способ получения помощи:"), kb)
+
+
+def setup_handlers(application):
+	"""Регистрация всех обработчиков"""
+	
+	# Главное меню
+	application.add_handler(CallbackQueryHandler(handle_main_menu, pattern="^main_menu$"))
+	
+	# Обработчики кнопок
+	application.add_handler(CallbackQueryHandler(handle_personal_cabinet, pattern="^personal_cabinet$"))
+	application.add_handler(CallbackQueryHandler(handle_workouts, pattern="^workouts$"))
+	application.add_handler(CallbackQueryHandler(handle_weekly_menu, pattern="^weekly_menu$"))
+	application.add_handler(CallbackQueryHandler(handle_photo_nutrition, pattern="^photo_nutrition$"))
+	application.add_handler(CallbackQueryHandler(handle_support, pattern="^support$"))
+	application.add_handler(CallbackQueryHandler(handle_bonuses, pattern="^bonuses$"))
+	
+	# Обработчик фото для анализа питания
+	application.add_handler(MessageHandler(filters.PHOTO, handle_food_photo))
+	
+	# Дополнительные обработчики для подменю
+	application.add_handler(CallbackQueryHandler(handle_workout_types, pattern="^(strength|cardio)_workouts$"))
+	application.add_handler(CallbackQueryHandler(handle_menu_days, pattern="^menu_(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$"))
+	application.add_handler(CallbackQueryHandler(handle_support_options, pattern="^(ask_question|faq|contact_support)$"))
+	application.add_handler(CallbackQueryHandler(handle_bonus_options, pattern="^(rewards_shop|my_achievements|bonus_history|invite_friend)$"))
+
+
+# Handler functions for submenus
+async def handle_workout_types(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Handle workout type selection"""
+	query = update.callback_query
+	await query.answer()
+	workout_type = "силовые" if "strength" in query.data else "кардио"
+	await _send_text_big(context, update.effective_chat.id, format_big_message(f"{workout_type.title()} тренировки", f"Подбор {workout_type} тренировок скоро будет доступен."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_workouts")]]))
+
+
+async def handle_menu_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Handle specific menu day selection"""
+	query = update.callback_query
+	await query.answer()
+	day = query.data.replace("menu_", "").title()
+	await _send_text_big(context, update.effective_chat.id, format_big_message(f"Меню - {day}", f"Детали меню на {day.lower()} скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_week")]]))
+
+
+async def handle_support_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Handle support submenu options"""
+	query = update.callback_query
+	await query.answer()
+	option = query.data
+	if option == "ask_question":
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Задать вопрос", "Напишите ваш вопрос текстом или голосом."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_support")]]))
+	elif option == "faq":
+		await _send_text_big(context, update.effective_chat.id, format_big_message("FAQ", "Часто задаваемые вопросы скоро будут доступны."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_support")]]))
+	elif option == "contact_support":
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Связаться с поддержкой", "Напишите ваш вопрос, мы ответим в ближайшее время."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_support")]]))
+
+
+async def handle_bonus_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
+	"""Handle bonus submenu options"""
+	query = update.callback_query
+	await query.answer()
+	option = query.data
+	if option == "rewards_shop":
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Магазин наград", "Скоро откроем магазин наград за баллы."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+	elif option == "my_achievements":
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Мои достижения", "Скоро добавим детальную страницу достижений."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+	elif option == "bonus_history":
+		await _send_text_big(context, update.effective_chat.id, format_big_message("История начислений", "История начисления баллов скоро будет доступна."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+	elif option == "invite_friend":
+		await _send_text_big(context, update.effective_chat.id, format_big_message("Пригласить друга", "Скоро добавим систему приглашений и реферальных бонусов."), InlineKeyboardMarkup([[InlineKeyboardButton(text="⬅️ Назад", callback_data="menu_loyalty")]]))
+
+
 async def run() -> None:
 	setup_logging(settings.log_level)
 	logger = logging.getLogger("bot")
@@ -724,6 +810,9 @@ async def run() -> None:
 	app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 	app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 	app.add_error_handler(error_handler)
+	
+	# Setup additional handlers
+	setup_handlers(app)
 
 	logger.info("Bot is starting (polling)...")
 	await app.initialize()
